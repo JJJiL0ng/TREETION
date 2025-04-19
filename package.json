@@ -1,0 +1,5 @@
+{
+    "scripts": {
+      "heroku-postbuild": "cd treetion-server && npm install && npm run build"
+    }
+  }

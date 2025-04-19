@@ -1,0 +1,1 @@
+web: cd treetion-server && npm start
