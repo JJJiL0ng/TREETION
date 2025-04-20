@@ -4,19 +4,33 @@ import { AuthService } from './auth.service';
 import { SocialAuthDto, RefreshTokenDto, AuthResponseDto } from './dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-
+import { CodeAuthDto } from './dto/code-auth.dto';
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
+
+  // AuthController 클래스 내에 추가
+  @Post('code')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Process OAuth authorization code' })
+  @ApiResponse({
+    status: 200,
+    description: 'Successfully authenticated with code',
+    type: AuthResponseDto
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async processAuthCode(@Body() codeAuthDto: CodeAuthDto): Promise<AuthResponseDto> {
+    return this.authService.processAuthCode(codeAuthDto);
+  }
 
   @Post('social')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Social login' })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Successfully authenticated',
-    type: AuthResponseDto 
+    type: AuthResponseDto
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async socialLogin(@Body() socialAuthDto: SocialAuthDto): Promise<AuthResponseDto> {
@@ -26,10 +40,10 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token' })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Successfully refreshed token',
-    type: AuthResponseDto 
+    type: AuthResponseDto
   })
   @ApiResponse({ status: 401, description: 'Invalid refresh token' })
   async refreshToken(@Body() refreshTokenDto: RefreshTokenDto): Promise<AuthResponseDto> {
