@@ -2,7 +2,6 @@
 'use client';
 
 import { useState } from 'react';
-// import { useRouter } from 'next/navigation';
 
 interface GoogleButtonProps {
   isLoading?: boolean;
@@ -10,7 +9,6 @@ interface GoogleButtonProps {
 
 export default function GoogleButton({ isLoading = false }: GoogleButtonProps) {
   const [localLoading, setLocalLoading] = useState(false);
-//   const router = useRouter();
   
   const handleGoogleLogin = async () => {
     setLocalLoading(true);
