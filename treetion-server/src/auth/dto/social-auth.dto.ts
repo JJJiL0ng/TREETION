@@ -1,6 +1,13 @@
 // src/auth/dto/social-auth.dto.ts
 import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
+/**
+ * 소셜 인증 공급자
+ * 
+ * 소셜 인증 공급자를 나타내는 열거형
+ * 
+ * 
+ */
 export enum SocialProvider {
   GOOGLE = 'google',
   KAKAO = 'kakao',

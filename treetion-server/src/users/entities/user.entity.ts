@@ -9,7 +9,7 @@ import {
   } from 'typeorm';
   import { Exclude } from 'class-transformer';
   import { SocialProvider } from '../../auth/dto';
-  
+  import { AudioFile } from '../../audio/entities/audio-file.entity';
   @Entity('users')
   export class User {
     @PrimaryGeneratedColumn('uuid')
@@ -50,6 +50,9 @@ import {
   
     @UpdateDateColumn()
     updatedAt: Date;
+    
+    @OneToMany(() => AudioFile, audioFile => audioFile.user)
+    audioFiles: AudioFile[];
   
     // 필요한 관계 정의 (예: 사용자가 갖는 오디오 파일, 트리 등)
     // @OneToMany(() => Audio, audio => audio.user)

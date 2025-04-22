@@ -1,6 +1,11 @@
+// src/app.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { join } from 'path';
+
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -11,32 +16,57 @@ import { AiModule } from './ai/ai.module';
 import { TreeModule } from './tree/tree.module';
 import { SvgModule } from './svg/svg.module';
 
+// 공통 필터 및 인터셉터
+import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+
+// 환경 설정 관련
+import appConfig from './config/app.config';
+import dbConfig from './config/db.config';
+import apiConfig from './config/api.config';
+
 @Module({
   imports: [
+    // 환경 설정 모듈
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
+      load: [appConfig, dbConfig, apiConfig], // 설정 파일 로드
     }),
+    
+    // 데이터베이스 설정
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        host: configService.get('DB_HOST'),
-        port: configService.get<number>('DB_PORT'),
-        username: configService.get('DB_USERNAME'),
-        password: configService.get('DB_PASSWORD'),
-        database: configService.get('DB_DATABASE'),
-        entities: ['dist/**/*.entity{.ts,.js}'],
-        synchronize: configService.get('NODE_ENV') !== 'production',
-        ssl: {
-          rejectUnauthorized: false,  // 자체 서명된 인증서 허용
-        },
-        connectTimeout: 30000,
-        retryAttempts: 5,
-        retryDelay: 3000,
-      }),
+      useFactory: (configService: ConfigService) => {
+        const dbOptions = configService.get('database');
+        return {
+          ...dbOptions,
+          ssl: process.env.NODE_ENV === 'production' ? {
+            rejectUnauthorized: false,
+          } : undefined,
+        };
+      },
     }),
+    
+    // 정적 파일 제공 (업로드된 오디오 파일 등)
+    ServeStaticModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => [
+        {
+          rootPath: join(process.cwd(), configService.get('app.upload.dir') || 'uploads'),
+          serveRoot: '/uploads',
+          serveStaticOptions: {
+            index: false,
+            maxAge: 86400000, // 1일
+          },
+        },
+      ],
+    }),
+    
+    // 기능 모듈들
     AuthModule,
     UsersModule,
     AudioModule,
@@ -46,6 +76,23 @@ import { SvgModule } from './svg/svg.module';
     SvgModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // 전역 예외 필터
+    {
+      provide: APP_FILTER,
+      useClass: HttpExceptionFilter,
+    },
+    // 전역 로깅 인터셉터
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: LoggingInterceptor,
+    },
+    // 응답 변환 인터셉터
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TransformInterceptor,
+    },
+  ],
 })
 export class AppModule {}

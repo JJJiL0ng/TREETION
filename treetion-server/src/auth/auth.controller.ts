@@ -24,6 +24,7 @@ export class AuthController {
     return this.authService.processAuthCode(codeAuthDto);
   }
 
+  //초기에 개발하였으나 현재는 /code Auth 방식을 사용하고 있음
   @Post('social')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Social login' })

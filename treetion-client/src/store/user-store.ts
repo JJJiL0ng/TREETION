@@ -2,6 +2,13 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { User } from '@/types/auth';
 
+/**
+ * 사용자 정보를 저장하는 스토어
+ * 
+ * 사용자 정보를 저장하고 관리하는 스토어
+ * 
+ * 사용자 인증 상태, 로그인 상태, 로그아웃 기능 등을 제공
+ */
 interface UserState {
   user: User | null;
   isAuthenticated: boolean;

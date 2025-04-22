@@ -1,6 +1,13 @@
 // src/auth/dto/social-profile.dto.ts
 import { SocialProvider } from './social-auth.dto';
 
+/**
+ * 소셜 프로필 DTO
+ * 
+ * 소셜 프로필 데이터를 표현하는 DTO
+ * 
+ * 
+ */
 export class SocialProfileDto {
     id: string;
     email: string;

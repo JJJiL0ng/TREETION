@@ -12,6 +12,9 @@ export default function LoginPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * 사용자 인증 상태를 조회하는 훅
+   */
   const isAuthenticated = useUserStore(state => state.isAuthenticated);
 
   useEffect(() => {
