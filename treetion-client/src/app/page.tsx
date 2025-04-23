@@ -1,12 +1,13 @@
 import Link from 'next/link';
 
+
 export default function Home() {
   return (
     <div className="flex flex-col min-h-screen">
       {/* 헤더 */}
       <header className="fixed w-full bg-white/90 backdrop-blur-sm z-50 shadow-sm">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <Link href="/" className="flex items-center space-x-2">
+          <Link href="/dashboards?id=${id}" className="flex items-center space-x-2">
             <h1 className="text-2xl font-bold text-[var(--primary)]">트리션</h1>
           </Link>
           
