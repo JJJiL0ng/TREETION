@@ -1,7 +1,7 @@
 // src/config/app.config.ts
 import { registerAs } from '@nestjs/config';
 import { ConfigService } from '@nestjs/config';
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 
 dotenv.config();
 

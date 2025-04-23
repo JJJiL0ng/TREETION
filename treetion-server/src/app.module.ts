@@ -43,9 +43,9 @@ import apiConfig from './config/api.config';
         const dbOptions = configService.get('database');
         return {
           ...dbOptions,
-          ssl: process.env.NODE_ENV === 'production' ? {
+          ssl: {
             rejectUnauthorized: false,
-          } : undefined,
+          },
         };
       },
     }),
