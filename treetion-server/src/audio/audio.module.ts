@@ -4,8 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
 
 import { AudioService } from './audio.service';
-// Controller 구현 후 주석 해제
-// import { AudioController } from './audio.controller';
+import { AudioController } from './audio.controller';
 
 import { AudioFile } from './entities/audio-file.entity';
 import { ChunkUpload } from './entities/chunk-upload.entity';
@@ -25,7 +24,7 @@ import { TranscriptionResult } from './entities/transcription-result.entity';
     ]),
   ],
   providers: [AudioService],
-  // controllers: [AudioController], // Controller 구현 후 주석 해제
+  controllers: [AudioController], 
   exports: [AudioService],
 })
 export class AudioModule {}
