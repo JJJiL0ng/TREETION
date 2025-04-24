@@ -10,18 +10,33 @@ import { CodeAuthDto } from './dto/code-auth.dto';
 export class AuthController {
   constructor(private readonly authService: AuthService) { }
 
-  // AuthController 클래스 내에 추가
+  // src/auth/auth.controller.ts
+  private processingCodes = new Map<string, Promise<AuthResponseDto>>();
+
   @Post('code')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Process OAuth authorization code' })
-  @ApiResponse({
-    status: 200,
-    description: 'Successfully authenticated with code',
-    type: AuthResponseDto
-  })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
   async processAuthCode(@Body() codeAuthDto: CodeAuthDto): Promise<AuthResponseDto> {
-    return this.authService.processAuthCode(codeAuthDto);
+    const codeKey = `${codeAuthDto.provider}-${codeAuthDto.code}`;
+
+    // 이미 처리 중인 요청이 있으면 재사용
+    if (this.processingCodes.has(codeKey)) {
+      console.log('Reusing in-flight request for code:', codeKey);
+      return this.processingCodes.get(codeKey) as Promise<AuthResponseDto>;
+    }
+
+    // 새 요청 처리
+    const resultPromise = this.authService.processAuthCode(codeAuthDto);
+    this.processingCodes.set(codeKey, resultPromise);
+
+    try {
+      const result = await resultPromise;
+      // 일정 시간 후 캐시에서 제거
+      setTimeout(() => this.processingCodes.delete(codeKey), 5000);
+      return result;
+    } catch (error) {
+      this.processingCodes.delete(codeKey);
+      throw error;
+    }
   }
 
   //초기에 개발하였으나 현재는 /code Auth 방식을 사용하고 있음

@@ -13,30 +13,30 @@ export default function LoginPage() {
   /**
    * 사용자 인증 상태를 조회하는 훅
    */
-  const isAuthenticated = useUserStore(state => state.isAuthenticated);
+  // const isAuthenticated = useUserStore(state => state.isAuthenticated);
 
-  useEffect(() => {
-    // 사용자가 이미 인증되어 있으면 대시보드로 리디렉션
-    if (isAuthenticated) {
-      router.push('/dashboard');
-    }
-  }, [isAuthenticated, router]);
+  // useEffect(() => {
+  //   // 사용자가 이미 인증되어 있으면 대시보드로 리디렉션
+  //   if (isAuthenticated) {
+  //     router.push('/dashboard');
+  //   }
+  // }, [isAuthenticated, router]);
 
-  const handleDemoLogin = async () => {
-    setIsLoading(true);
-    setError(null);
+  // const handleDemoLogin = async () => {
+  //   setIsLoading(true);
+  //   setError(null);
     
-    try {
-      // 실제 구현에서는 서버에 데모 로그인 요청을 보내고 응답을 처리합니다
-      // 여기서는 단순히 대시보드로 리다이렉트하는 것으로 대체합니다
-      setTimeout(() => {
-        router.push('/dashboard');
-      }, 1000);
-    } catch {
-      setError('데모 로그인 중 오류가 발생했습니다. 다시 시도해주세요.');
-      setIsLoading(false);
-    }
-  };
+  //   try {
+  //     // 실제 구현에서는 서버에 데모 로그인 요청을 보내고 응답을 처리합니다
+  //     // 여기서는 단순히 대시보드로 리다이렉트하는 것으로 대체합니다
+  //     setTimeout(() => {
+  //       router.push('/dashboard');
+  //     }, 1000);
+  //   } catch {
+  //     setError('데모 로그인 중 오류가 발생했습니다. 다시 시도해주세요.');
+  //     setIsLoading(false);
+  //   }
+  // };
 
   return (
     <div className="space-y-8">
@@ -55,7 +55,7 @@ export default function LoginPage() {
         <GoogleButton isLoading={isLoading} />
         
         <button
-          onClick={handleDemoLogin}
+          // onClick={handleDemoLogin}
           disabled={isLoading}
           className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-3 rounded-lg hover:bg-gray-50 transition-colors"
         >

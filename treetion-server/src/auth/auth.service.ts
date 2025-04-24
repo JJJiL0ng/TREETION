@@ -81,63 +81,82 @@ export class AuthService {
           headers: { Authorization: `Bearer ${accessToken}` },
         },
       );
-
+  
+      console.log('Google API response:', data);
+  
       return {
-        id: data.sub,
+        id: data.id || data.sub, // id 필드 우선 사용, 없으면 sub 사용
         email: data.email,
         name: data.name,
         firstName: data.given_name,
         lastName: data.family_name,
         picture: data.picture,
         provider: SocialProvider.GOOGLE,
-        providerId: data.sub,
+        providerId: data.id || data.sub, // providerId도 설정
         raw: data,
       };
     } catch (error) {
+      console.error('Google profile fetch error:', error);
       throw new UnauthorizedException('Invalid Google access token');
     }
   }
 
   async findOrCreateUser(socialProfile: SocialProfileDto): Promise<User> {
-    // 기존 사용자 찾기 시도
+    console.log('Finding user with email:', socialProfile.email);
+    
+    // 이메일로 정확히 검색
     let user = await this.userRepository.findOne({
-      where: [
-        { email: socialProfile.email },
-        {
-          providerId: socialProfile.providerId,
-          provider: socialProfile.provider
-        }
-      ]
+      where: { email: socialProfile.email }
     });
-
-    // 사용자가 존재하지 않으면 새로 생성
-    // 사용자가 존재하지 않으면 새로 생성
-    // TODO: Google OAuth 인증 과정에서 providerId가 null로 설정되는 문제가 있음
-    // 현재 임시 방편으로 하드코딩된 값을 사용하지만, 이는 일시적인 해결책임
-    // 해결 방안:
-    // 1. getGoogleProfile 메서드에서 Google API 응답의 'sub' 필드가 정상적으로 반환되는지 확인
-    // 2. 토큰 교환 과정(processAuthCode)에서 응답 데이터를 로깅하여 문제 원인 파악
-    // 3. Google API 버전 또는 엔드포인트 변경 여부 확인
-    // 4. 장기적으로는 DB 스키마를 조정하거나 적절한 예외 처리 구현 필요
+    
+    console.log('User found by email:', user ? 'Yes' : 'No');
+    
+    // 이메일로 찾지 못한 경우, provider와 providerId 모두 사용하여 검색
     if (!user) {
-      user = new User();
-      user.email = socialProfile.email;
-      user.name = socialProfile.name || '';
-      user.firstName = socialProfile.firstName || '';
-      user.lastName = socialProfile.lastName || '';
-      user.profilePicture = socialProfile.picture || '';
-      user.provider = socialProfile.provider;
-
-      // 임시 하드코딩 - 구글 로그인의 경우
-      if (socialProfile.provider === SocialProvider.GOOGLE) {
-        user.providerId = socialProfile.providerId || 'google-user-id';
-      } else {
-        user.providerId = socialProfile.providerId || `temp-${Date.now()}`;
+      const providerId = socialProfile.id || socialProfile.providerId;
+      if (providerId) {
+        user = await this.userRepository.findOne({
+          where: { 
+            provider: socialProfile.provider,
+            providerId: providerId
+          }
+        });
+        console.log('User found by provider and providerId:', user ? 'Yes' : 'No');
       }
-
-      user = await this.userRepository.save(user);
     }
-
+    
+    if (user) {
+      console.log('Existing user found:', user.id);
+    } else {
+      console.log('No user found, creating new user');
+      
+      const newUser = new User();
+      newUser.email = socialProfile.email;
+      newUser.name = socialProfile.name || '';
+      newUser.firstName = socialProfile.firstName || '';
+      newUser.lastName = socialProfile.lastName || '';
+      newUser.profilePicture = socialProfile.picture || '';
+      newUser.provider = socialProfile.provider;
+      
+      // Google 사용자의 경우 raw 데이터에서 id 필드 사용
+      if (socialProfile.provider === SocialProvider.GOOGLE && socialProfile.raw) {
+        newUser.providerId = socialProfile.raw.id || socialProfile.id || `google-${Date.now()}`;
+      } else {
+        newUser.providerId = socialProfile.id || socialProfile.providerId || `${socialProfile.provider}-${Date.now()}`;
+      }
+      
+      console.log('Creating user with providerId:', newUser.providerId);
+      
+      try {
+        // 사용자 저장 시도
+        user = await this.userRepository.save(newUser);
+        console.log('User created successfully with ID:', user.id);
+      } catch (error) {
+        console.error('Error creating user:', error);
+        throw error;
+      }
+    }
+    
     return user;
   }
 
@@ -252,5 +271,7 @@ export class AuthService {
       console.error('OAuth code processing error:', error);
       throw new UnauthorizedException(`Failed to process ${provider} authorization code`);
     }
+
   }
+
 }
