@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUserStore } from '@/store/user-store';
-import { processOAuthCallback } from '@/lib/api/auth';
+import { processOAuthCallback } from '@/lib/api/auth/auth';
 
 export default function OAuthCallbackPage({
   params,

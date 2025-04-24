@@ -1,6 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import { User } from '@/types/auth';
-import apiClient from './client';
+import apiClient from '../client';
 
 // API 엔드포인트 기본 URL (환경 변수에서 가져옴)
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
@@ -126,8 +126,6 @@ export async function socialLoginWithCode(
     }
 }
 
-
-
 /**
  * 토큰 새로고침
  */
@@ -144,7 +142,14 @@ export async function refreshToken(): Promise<string> {
         });
 
         const newToken = response.data.accessToken;
+        const newRefreshToken = response.data.refreshToken;
+        
+        // 토큰 저장
         localStorage.setItem('token', newToken);
+        // 새 리프레시 토큰이 있으면 저장
+        if (newRefreshToken) {
+            localStorage.setItem('refreshToken', newRefreshToken);
+        }
 
         return newToken;
     } catch (error) {
@@ -229,6 +234,7 @@ export async function logout(): Promise<void> {
         localStorage.removeItem('refreshToken');
     }
 }
+
 // 수정된 프론트엔드 인증 처리 함수
 export async function processOAuthCallback(provider: string, code: string): Promise<User> {
     try {
@@ -240,18 +246,24 @@ export async function processOAuthCallback(provider: string, code: string): Prom
         redirectUri
       });
       
-      // 응답에서 토큰 저장
-      localStorage.setItem('token', response.data.accessToken);
-      localStorage.setItem('refreshToken', response.data.refreshToken);
+      console.log('OAuth 처리 응답:', response.data);
+      
+      // 응답에서 토큰 저장 (응답 형식 확인하고 토큰 키 값 수정)
+      if (response.data.accessToken) {
+        localStorage.setItem('token', response.data.accessToken);
+      }
+      if (response.data.refreshToken) {
+        localStorage.setItem('refreshToken', response.data.refreshToken);
+      }
       
       return response.data.user;
     } catch (error) {
       console.error(`${provider} OAuth 처리 중 오류:`, error);
       throw new Error(`${provider} 로그인을 처리하는 중 오류가 발생했습니다.`);
     }
-  }
-  
-  // Google 콜백 특화 함수도 간소화
-  export async function processGoogleCallback(code: string): Promise<User> {
-    return processOAuthCallback('google', code);
-  }
+}
+
+// Google 콜백 특화 함수도 간소화
+export async function processGoogleCallback(code: string): Promise<User> {
+  return processOAuthCallback('google', code);
+}

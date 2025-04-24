@@ -37,6 +37,7 @@ import {
 
 
   import { User } from '../users/entities/user.entity';
+  import { UserDto } from '../users/dto/user.dto';
   
   import { diskStorage } from 'multer';
   import { extname } from 'path';
@@ -44,7 +45,10 @@ import {
   
   // Express Request에 user 속성 추가
   interface RequestWithUser extends Request {
-    user: User;
+    user: {
+      userId: string;
+      id: string;
+    } & Partial<UserDto>;
   }
   
   @ApiTags('audio')

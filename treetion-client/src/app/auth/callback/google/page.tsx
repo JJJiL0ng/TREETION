@@ -52,11 +52,28 @@ export default function GoogleCallbackPage() {
         setDebugInfo('백엔드 응답 처리 중...');
         
         // 응답에서 토큰 및 사용자 정보 추출
-        const { accessToken, refreshToken, user } = response.data;
+        const { accessToken, refreshToken, user } = response.data.data;
+        
+        console.log('토큰 정보:', { 
+          accessToken: accessToken ? '있음' : '없음', 
+          refreshToken: refreshToken ? '있음' : '없음',
+          tokenLength: accessToken?.length
+        });
+        
+        // 토큰이 없는 경우 오류 처리
+        if (!accessToken || !refreshToken) {
+          throw new Error('인증 토큰이 반환되지 않았습니다.');
+        }
         
         // 토큰 저장
         localStorage.setItem('token', accessToken);
         localStorage.setItem('refreshToken', refreshToken);
+        
+        // 로컬스토리지 저장 확인
+        console.log('저장된 토큰 확인:', { 
+          token: localStorage.getItem('token') ? '저장됨' : '저장 실패',
+          refreshToken: localStorage.getItem('refreshToken') ? '저장됨' : '저장 실패'
+        });
         
         // 사용자 정보 저장
         setUser(user);

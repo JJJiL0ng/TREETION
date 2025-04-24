@@ -34,11 +34,20 @@ export const useUserStore = create<UserState>()(
       }),
       setError: (error) => set({ error }),
       setLoading: (isLoading) => set({ isLoading }),
-      logout: () => set({ 
-        user: null, 
-        isAuthenticated: false,
-        error: null
-      }),
+      logout: () => {
+        // 로컬 스토리지에서 토큰 제거
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('token');
+          localStorage.removeItem('refreshToken');
+        }
+        
+        // 상태 초기화
+        set({ 
+          user: null, 
+          isAuthenticated: false,
+          error: null
+        });
+      },
     }),
     {
       name: 'user-store',
