@@ -54,6 +54,9 @@ import {
       @Body('audioFileType') audioFileType: string,
       @Request() req
     ) {
+      console.log('수신된 파일:', file);
+      console.log('파일 크기:', file.size);
+      console.log('MIME 타입:', file.mimetype);
       const createAudioDto = new CreateAudioDto();
       createAudioDto.title = title;
       createAudioDto.audioFileType = audioFileType;
