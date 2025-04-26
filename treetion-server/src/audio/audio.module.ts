@@ -1,30 +1,33 @@
-// src/audio/audio.module.ts
 import { Module } from '@nestjs/common';
+import { MulterModule } from '@nestjs/platform-express';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { ConfigModule } from '@nestjs/config';
-
-import { AudioService } from './audio.service';
+import { diskStorage } from 'multer';
+import { extname } from 'path';
+import { v4 as uuidv4 } from 'uuid'; // uuid 라이브러리 import
 import { AudioController } from './audio.controller';
-
-import { AudioFile } from './entities/audio-file.entity';
-import { ChunkUpload } from './entities/chunk-upload.entity';
-import { UsageStats } from './entities/usage-stats.entity';
-import { Transcription } from './entities/transcription.entity';
-import { TranscriptionResult } from './entities/transcription-result.entity';
-
+import { AudioService } from './audio.service';
+import { Audio } from './entities/audio.entity';
+import { ConfigModule } from '@nestjs/config';
 @Module({
   imports: [
+    TypeOrmModule.forFeature([Audio]),
     ConfigModule,
-    TypeOrmModule.forFeature([
-      AudioFile,
-      ChunkUpload,
-      UsageStats,
-      Transcription,
-      TranscriptionResult,
-    ]),
+    MulterModule.register({
+      storage: diskStorage({
+        destination: './uploads/audio',
+        filename: (req, file, callback) => {
+          // UUID를 사용하여 고유한 파일명 생성
+          const uuid = uuidv4();
+          const ext = extname(file.originalname);
+          callback(null, `${uuid}${ext}`);
+        },
+      }),
+      limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB
+      },
+    }),
   ],
+  controllers: [AudioController],
   providers: [AudioService],
-  controllers: [AudioController], 
-  exports: [AudioService],
 })
 export class AudioModule {}
