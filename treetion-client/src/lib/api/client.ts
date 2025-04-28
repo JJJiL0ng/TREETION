@@ -1,8 +1,8 @@
 import axios from 'axios';
-import { refreshToken } from './auth';
+import { refreshToken } from './auth/auth';
 
 // API 엔드포인트 기본 URL
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
 // Axios 인스턴스 생성
 const apiClient = axios.create({
@@ -31,6 +31,11 @@ apiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     
+    // error.response가 없는 경우 처리 추가
+    if (!error.response) {
+      return Promise.reject(error);
+    }
+    
     // 토큰 만료로 인한 401 에러이고, 재시도하지 않은 요청인 경우
     if (error.response.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
@@ -46,7 +51,12 @@ apiClient.interceptors.response.use(
         return apiClient(originalRequest);
       } catch (refreshError) {
         // 토큰 갱신 실패 - 로그인 페이지로 리다이렉트 등의 처리
-        window.location.href = '/auth/login';
+        console.error('토큰 갱신 실패:', refreshError);
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('token');
+          localStorage.removeItem('refreshToken');
+          window.location.href = '/auth/login';
+        }
         return Promise.reject(refreshError);
       }
     }

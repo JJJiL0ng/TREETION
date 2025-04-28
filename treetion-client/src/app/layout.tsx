@@ -49,7 +49,7 @@ export default function RootLayout({ children }: RootLayoutProps): JSX.Element {
                    <li><a href="#cta" className="hover:text-[#005DE9] transition-colors">시작하기</a></li>
                  </ul>
                </nav>
-               <Link href="/comingsoon" className="bg-[#005DE9] text-white px-4 py-2 rounded-full hover:bg-[#004bb7] transition-colors">
+               <Link href="/auth/login" className="bg-[#005DE9] text-white px-4 py-2 rounded-full hover:bg-[#004bb7] transition-colors">
                  무료 체험하기
                </Link>
              </div>

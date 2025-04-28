@@ -2,19 +2,13 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { User } from '@/types/auth';
 
-/**
- * 사용자 정보를 저장하는 스토어
- * 
- * 사용자 정보를 저장하고 관리하는 스토어
- * 
- * 사용자 인증 상태, 로그인 상태, 로그아웃 기능 등을 제공
- */
 interface UserState {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
-  setUser: (user: User | null) => void;
+  token: string | null; // JWT 토큰 추가
+  setUser: (user: User | null, token?: string | null) => void;
   setError: (error: string | null) => void;
   setLoading: (isLoading: boolean) => void;
   logout: () => void;
@@ -27,24 +21,40 @@ export const useUserStore = create<UserState>()(
       isAuthenticated: false,
       isLoading: false,
       error: null,
-      setUser: (user) => set({ 
-        user, 
-        isAuthenticated: !!user,
-        error: null
-      }),
+      token: null,
+      setUser: (user, token = null) => {
+        // 토큰이 제공되면 로컬 스토리지에 저장
+        if (token && typeof window !== 'undefined') {
+          localStorage.setItem('token', token);
+        }
+        
+        set({ 
+          user, 
+          token,
+          isAuthenticated: !!user,
+          error: null
+        });
+      },
       setError: (error) => set({ error }),
       setLoading: (isLoading) => set({ isLoading }),
-      logout: () => set({ 
-        user: null, 
-        isAuthenticated: false,
-        error: null
-      }),
+      logout: () => {
+        // 로컬 스토리지에서 토큰 제거
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('token');
+          localStorage.removeItem('refreshToken');
+        }
+        
+        // 상태 초기화
+        set({ 
+          user: null, 
+          token: null,
+          isAuthenticated: false,
+          error: null
+        });
+      },
     }),
     {
       name: 'user-store',
-      // 사용자 정보는 민감할 수 있으므로 실제 구현에서는 
-      // 필요한 정보만 선택적으로 유지하거나 
-      // 다른 인증 패턴을 사용할 수 있습니다.
       partialize: (state) => ({
         user: state.user ? {
           id: state.user.id,
@@ -52,6 +62,7 @@ export const useUserStore = create<UserState>()(
           email: state.user.email,
           profileImage: state.user.profileImage,
         } : null,
+        token: state.token,
         isAuthenticated: state.isAuthenticated,
       }),
     }
