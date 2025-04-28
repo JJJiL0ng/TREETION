@@ -21,6 +21,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { SttClovaModule } from './stt-clova/stt-clova.module';
 import { SttWhisperModule } from './stt-whisper/stt-whisper.module';
+import { StorageModule } from './storage/storage.module';
 
 // 환경 설정 관련
 import appConfig from './config/app.config';
@@ -76,6 +77,7 @@ import apiConfig from './config/api.config';
     SvgModule,
     SttClovaModule,
     SttWhisperModule,
+    StorageModule,
   ],
   controllers: [AppController],
   providers: [
