@@ -12,12 +12,5 @@ export class UpdateAudioDto {
   @IsString()
   title?: string;
 
-  @ApiProperty({
-    description: '오디오 파일 타입',
-    example: 'Mp3',
-    required: false,
-  })
-  @IsOptional()
-  @IsString()
-  audioFileType?: string;
+  // audioFileType은 제거 - 항상 MP3로 저장되어 수정이 불필요함
 }
