@@ -1,8 +1,6 @@
 // hooks/recoder/useRecorder.ts
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { uploadAudio } from '@/lib/api/audio/record';
-import { AxiosProgressEvent } from 'axios';
-import { useUserStore } from '@/store/user-store';
 
 interface UseRecorderOptions {
     mimeType?: string;
@@ -25,10 +23,6 @@ export default function useRecorder({
     mimeType = 'audio/webm',
     onUploadProgress,
 }: UseRecorderOptions = {}) {
-    // 사용자 스토어에서 현재 사용자 정보 가져오기
-    const user = useUserStore(state => state.user);
-    const isAuthenticated = useUserStore(state => state.isAuthenticated);
-
     const [state, setState] = useState<RecorderState>({
         isRecording: false,
         isPaused: false,

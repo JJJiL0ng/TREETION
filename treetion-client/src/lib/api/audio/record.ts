@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
 // 백엔드 응답에 맞게 인터페이스 수정
 interface UploadAudioResponse {
@@ -21,8 +21,8 @@ interface UploadAudioResponse {
     status?: boolean;
     data?: {
       id: string;
-      // 기타 필요한 필드들
-      [key: string]: any;
+      // 필요한 다른 필드들에 대한 타입을 명시합니다.
+      [key: string]: unknown;
     };
   }
 
@@ -68,11 +68,11 @@ export const uploadAudio = async (
     );
     
     return response.data;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error uploading audio:', error);
     
     // 상세 에러 정보 출력
-    if (error.response) {
+    if (axios.isAxiosError(error) && error.response) {
       console.error('Error status:', error.response.status);
       console.error('Error data:', error.response.data);
     }
