@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { join } from 'path';
+import storageConfig from './config/storage.config';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -34,7 +35,7 @@ import apiConfig from './config/api.config';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
-      load: [appConfig, dbConfig, apiConfig], // 설정 파일 로드
+      load: [appConfig, dbConfig, apiConfig, storageConfig], // 설정 파일 로드
     }),
     
     // 데이터베이스 설정

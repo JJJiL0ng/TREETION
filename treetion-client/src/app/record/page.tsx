@@ -1,28 +1,31 @@
-// app/record/page.tsx
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import useRecorder from '@/hooks/recoder/useRecorder';
 import { useUserStore } from '@/store/user-store';
 import { useRouter } from 'next/navigation';
+import { getAudioById } from '@/lib/api/audio/record';
 
 export default function RecordPage() {
   const router = useRouter();
   const isAuthenticated = useUserStore(state => state.isAuthenticated);
-   // 인증 상태 체크
-   useEffect(() => {
+  const [uploadedAudioDetails, setUploadedAudioDetails] = useState<any>(null);
+  
+  // 인증 상태 체크
+  useEffect(() => {
     if (!isAuthenticated) {
-      // 로그인 페이지로 리다이렉트하거나 경고 메시지 표시
       alert('로그인이 필요한 기능입니다.');
-      router.push('/auth/login'); // 로그인 페이지 경로에 맞게 수정
+      router.push('/auth/login');
     }
   }, [isAuthenticated, router]);
+  
   const {
     isRecording,
     isPaused,
     recordingTime,
     audioUrl,
     audioBlob,
+    uploadedAudioId,
     isUploading,
     uploadProgress,
     error,
@@ -32,6 +35,22 @@ export default function RecordPage() {
     stopRecording,
     uploadRecording
   } = useRecorder();
+
+  // 업로드된 오디오 정보 가져오기
+  useEffect(() => {
+    const fetchAudioDetails = async () => {
+      if (uploadedAudioId) {
+        try {
+          const details = await getAudioById(uploadedAudioId);
+          setUploadedAudioDetails(details);
+        } catch (err) {
+          console.error('오디오 상세 정보를 가져오는 중 오류 발생:', err);
+        }
+      }
+    };
+
+    fetchAudioDetails();
+  }, [uploadedAudioId]);
 
   // 녹음 시간 형식화 (mm:ss)
   const formatTime = (ms: number) => {
@@ -50,10 +69,13 @@ export default function RecordPage() {
       if (audioId) {
         console.log('녹음 업로드 성공:', audioId);
         alert('녹음이 성공적으로 업로드되었습니다.');
+        
+        // 업로드 성공 후 필요한 처리 (예: 목록 페이지로 이동)
+        // router.push('/audio/list');
       }
     } catch (err) {
       console.error('업로드 중 오류 발생:', err);
-      alert('업로드 중 오류가 발생했습니다.');
+      alert('업로드 중 오류가 발생했습니다. 다시 시도해주세요.');
     }
   };
 
@@ -64,6 +86,13 @@ export default function RecordPage() {
     }
     // 새로운 녹음 시작
     startRecording();
+  };
+
+  // 분석 페이지로 이동
+  const navigateToAnalysis = () => {
+    if (uploadedAudioId) {
+      router.push(`/audio/analysis/${uploadedAudioId}`);
+    }
   };
 
   return (
@@ -129,7 +158,7 @@ export default function RecordPage() {
             </button>
           )}
           
-          {audioBlob && !isUploading && (
+          {audioBlob && !isUploading && !uploadedAudioId && (
             <>
               <button
                 onClick={handleReset}
@@ -145,6 +174,15 @@ export default function RecordPage() {
                 업로드
               </button>
             </>
+          )}
+          
+          {uploadedAudioId && uploadedAudioDetails && (
+            <button
+              onClick={navigateToAnalysis}
+              className="bg-purple-500 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded"
+            >
+              분석 시작
+            </button>
           )}
         </div>
         
@@ -166,6 +204,26 @@ export default function RecordPage() {
                 style={{ width: `${uploadProgress}%` }}
               ></div>
             </div>
+          </div>
+        )}
+        
+        {/* 업로드 완료 후 정보 표시 */}
+        {uploadedAudioId && uploadedAudioDetails && (
+          <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-md">
+            <h3 className="font-semibold text-green-800 mb-2">
+              업로드 완료
+            </h3>
+            <p className="text-sm text-gray-600">
+              파일명: {uploadedAudioDetails.originalName || '(이름 없음)'}
+            </p>
+            <p className="text-sm text-gray-600">
+              크기: {(uploadedAudioDetails.size / (1024 * 1024)).toFixed(2)} MB
+            </p>
+            {uploadedAudioDetails.url && (
+              <div className="mt-2">
+                <audio src={uploadedAudioDetails.url} controls className="w-full" />
+              </div>
+            )}
           </div>
         )}
       </div>

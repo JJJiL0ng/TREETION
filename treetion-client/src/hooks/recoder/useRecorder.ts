@@ -1,4 +1,3 @@
-// hooks/recoder/useRecorder.ts
 import { useState, useCallback, useRef } from 'react';
 import { uploadAudio } from '@/lib/api/audio/record';
 
@@ -193,76 +192,93 @@ export default function useRecorder({
         }
     }, [state.isRecording]);
 
-    // 녹음 파일 업로드
-    // hooks/recoder/useRecorder.ts의 uploadRecording 함수 수정
-
+    // 녹음 파일 업로드 - 백엔드 API에 맞게 수정
+    // 녹음 파일 업로드 - 백엔드 API에 맞게 수정 (FormData 생성 방식 수정)
+// 수정된 uploadRecording 함수 (hooks/recoder/useRecorder.ts)
 const uploadRecording = useCallback(async () => {
-  if (!state.audioBlob) return null;
-
-  try {
-    setState(prev => ({ 
-      ...prev, 
-      isUploading: true,
-      uploadProgress: 0,
-      error: null 
-    }));
-
-    // 파일 생성 및 기본 메타데이터 설정
-    const file = new File(
-      [state.audioBlob], 
-      `recording_${new Date().toISOString().replace(/:/g, '-')}.webm`, 
-      { type: state.audioBlob.type }
-    );
-
-    // FormData 객체 생성
-    const formData = new FormData();
-    
-    // 백엔드 컨트롤러에 맞게 필드 설정
-    formData.append('file', file);
-    formData.append('title', `녹음_${new Date().toLocaleString()}`);
-    formData.append('audioFileType', state.audioBlob.type.split('/')[1] || 'webm');
-    
-    // 업로드 진행 상태 처리를 위한 콜백
-    const onProgress = (progress: number) => {
-      setState(prev => ({ ...prev, uploadProgress: progress }));
-      if (onUploadProgress) onUploadProgress(progress);
-    };
-
-    // API 호출
-    const result = await uploadAudio(formData, onProgress);
-    
-    console.log('Upload result:', result);
-    
-    // 백엔드 응답 구조에 맞게 수정
-    // status와 data 구조를 확인하고 적절히 처리
-    let audioId = null;
-    
-    if (result.status && result.data) {
-      // 새로운 응답 구조
-      audioId = result.data.id;
-    } else if (result.success && result.file) {
-      // 기존 예상 구조
-      audioId = result.file.id;
+    if (!state.audioBlob) return null;
+  
+    try {
+      setState(prev => ({ 
+        ...prev, 
+        isUploading: true,
+        uploadProgress: 0,
+        error: null 
+      }));
+  
+      // 오디오 Blob을 메모리에서 파일로 변환
+      const nowTime = new Date().toISOString().replace(/:/g, '-');
+      const filename = `recording_${nowTime}.webm`;
+      
+      // 파일 객체 생성 (이름, MIME 타입 지정)
+      const audioFile = new File([state.audioBlob], filename, { 
+        type: state.audioBlob.type 
+      });
+      
+      console.log('업로드할 파일 정보:', {
+        name: audioFile.name,
+        size: audioFile.size,
+        type: audioFile.type,
+        lastModified: audioFile.lastModified
+      });
+  
+      // FormData 생성
+      const formData = new FormData();
+      
+      // 파일 필드 추가 (필드명 'file'은 백엔드 FileInterceptor 설정과 일치해야 함)
+      formData.append('file', audioFile);
+      
+      // 메타데이터 추가
+      const title = `녹음_${new Date().toLocaleString()}`;
+      formData.append('title', title);
+      formData.append('audioFileType', audioFile.type.split('/')[1] || 'webm');
+      
+      // FormData 내용 확인 로깅
+      console.log('FormData를 확인합니다:');
+      for (const entry of formData.entries()) {
+        if (entry[0] === 'file') {
+          console.log('File field:', entry[0], 'File name:', (entry[1] as File).name, 'Size:', (entry[1] as File).size);
+        } else {
+          console.log('Field:', entry[0], 'Value:', entry[1]);
+        }
+      }
+  
+      // 업로드 진행률 콜백
+      const onProgress = (progress: number) => {
+        setState(prev => ({ ...prev, uploadProgress: progress }));
+        if (onUploadProgress) onUploadProgress(progress);
+      };
+  
+      // 파일 업로드 API 호출
+      const response = await uploadAudio(formData, onProgress);
+      
+      console.log('Upload response:', response);
+      
+      if (response && response.success && response.file) {
+        const audioId = response.file.id;
+        
+        setState(prev => ({
+          ...prev,
+          isUploading: false,
+          uploadProgress: 100,
+          uploadedAudioId: audioId
+        }));
+        
+        return audioId;
+      } else {
+        throw new Error('업로드 응답 형식이 올바르지 않습니다');
+      }
+    } catch (error) {
+      setState(prev => ({ 
+        ...prev, 
+        isUploading: false,
+        error: error as Error 
+      }));
+      console.error('Error uploading recording:', error);
+      return null;
     }
-    
-    setState(prev => ({
-      ...prev,
-      isUploading: false,
-      uploadProgress: 100,
-      uploadedAudioId: audioId
-    }));
-    
-    return audioId;
-  } catch (error) {
-    setState(prev => ({ 
-      ...prev, 
-      isUploading: false,
-      error: error as Error 
-    }));
-    console.error('Error uploading recording:', error);
-    return null;
-  }
-}, [state.audioBlob, onUploadProgress]);
+  }, [state.audioBlob, onUploadProgress]);
+
     return {
         ...state,
         startRecording,

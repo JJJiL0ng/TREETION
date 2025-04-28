@@ -8,8 +8,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
-  // 전역 접두사 설정
-  app.setGlobalPrefix('api');
+
 
   // CORS 설정
   app.enableCors();
