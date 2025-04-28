@@ -1,7 +1,7 @@
 // app/record/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import useRecorder from '@/hooks/recoder/useRecorder';
 import { useUserStore } from '@/store/user-store';
 import { useRouter } from 'next/navigation';
