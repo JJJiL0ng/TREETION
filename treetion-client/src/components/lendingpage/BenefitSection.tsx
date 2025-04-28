@@ -16,7 +16,7 @@ interface Benefit {
   description: string;
   icon: string;
   stats?: Stat[];
-  image?: boolean;
+  image?: string;
 }
 
 export default function BenefitSection(): JSX.Element {
