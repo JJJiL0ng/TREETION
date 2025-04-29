@@ -1,203 +1,239 @@
-// src/audio/audio.service.ts
-import { Injectable, InternalServerErrorException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as fs from 'fs';
+import * as path from 'path';
+import { promisify } from 'util';
+import { S3 } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import { ConfigService } from '@nestjs/config';
-import { createClient } from '@supabase/supabase-js';
-import { v4 as uuidv4 } from 'uuid';
-import { plainToClass } from 'class-transformer';
-
 import { CreateAudioDto } from './dto/create-audio.dto';
 import { AudioResponseDto } from './dto/audio-response.dto';
-import { Audio } from './entities/audio.entity';
-import { AudioDto } from './dto/audio.dto';
-import * as path from 'path';
+import { AudioEntity } from './entities/audio.entity';
 
 @Injectable()
 export class AudioService {
-    private supabase;
+  private readonly logger = new Logger(AudioService.name);
+  private readonly s3Client: S3;
+  private readonly unlinkAsync = promisify(fs.unlink);
 
-    constructor(
-        @InjectRepository(Audio)
-        private readonly audioRepository: Repository<Audio>,
-        private configService: ConfigService,
-    ) {
-        // Supabase 클라이언트 초기화 - 환경변수 이름 확인 필요
-        const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
-        const supabaseKey = this.configService.get<string>('SUPABASE_SERVICE_KEY');
+  constructor(
+    @InjectRepository(AudioEntity)
+    private readonly audioRepository: Repository<AudioEntity>,
+    private readonly configService: ConfigService,
+  ) {
+    // R2 클라이언트 초기화
+    this.s3Client = new S3({
+      region: 'auto',
+      endpoint: `https://${this.configService.get('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com`,
+      credentials: {
+        accessKeyId: this.configService.get<string>('R2_ACCESS_KEY_ID') || '',
+        secretAccessKey: this.configService.get<string>('R2_SECRET_ACCESS_KEY') || '',
+      },
+    });
+  }
 
-        if (!supabaseUrl || !supabaseKey) {
-            throw new Error('Supabase 환경 변수가 설정되지 않았습니다.');
+  /**
+   * 오디오 파일을 R2에 업로드하고 메타데이터를 Supabase에 저장합니다.
+   * 
+   * 프로세스:
+   * 1. 임시 저장된 파일을 읽습니다.
+   * 2. R2에 파일을 업로드합니다.
+   * 3. 메타데이터와 R2 URL을 Supabase에 저장합니다.
+   * 4. 임시 파일을 삭제합니다.
+   * 5. 저장된 오디오 정보를 반환합니다.
+   * 
+   * @param file 업로드된 오디오 파일 (Multer에 의해 임시 저장됨)
+   * @param createAudioDto 오디오 메타데이터 (제목, 녹음 날짜)
+   * @param userId JWT에서 추출한 사용자 ID
+   * @returns 저장된 오디오 정보와 URL을 포함한 DTO
+   */
+  async create(
+    file: Express.Multer.File, 
+    createAudioDto: CreateAudioDto, 
+    userId: string
+  ): Promise<AudioResponseDto> {
+    this.logger.log(`사용자 ${userId}의 오디오 파일 업로드 시작: ${file.originalname}, 타입: ${file.mimetype}, 크기: ${file.size}바이트`);
+    
+    try {
+      // 1. 파일 정보 준비
+      const fileExtension = path.extname(file.originalname) || this.getExtensionFromMimeType(file.mimetype);
+      const fileKey = `audios/${userId}/${Date.now()}${fileExtension}`;
+      
+      this.logger.log(`사용할 파일 확장자: ${fileExtension}, 저장 경로: ${fileKey}`);
+      
+      // 2. R2에 파일 업로드 (파일의 MIME 타입 전달)
+      const uploadResult = await this.uploadFileToR2(file.path, fileKey, file.mimetype);
+      this.logger.log(`R2 업로드 완료: ${uploadResult.Location}`);
+      
+      // 3. 공개 URL 생성 (ConfigService에서 가져온 PUBLIC_URL 사용)
+      const publicUrl = this.generatePublicUrl(fileKey);
+      
+      // 4. Supabase에 메타데이터 저장
+      const audioEntity = this.audioRepository.create({
+        title: createAudioDto.title,
+        userId: userId,
+        audioUrl: publicUrl,
+        audioKey: fileKey,
+        recordedAt: new Date(createAudioDto.recordedAt),
+      });
+      
+      const savedAudio = await this.audioRepository.save(audioEntity);
+      this.logger.log(`사용자 ${userId}의 오디오 메타데이터 저장 완료: ID ${savedAudio.id}`);
+      
+      // 5. 임시 파일 삭제
+      await this.unlinkAsync(file.path);
+      this.logger.log(`임시 파일 삭제 완료: ${file.path}`);
+      
+      // 6. 응답 DTO 형식으로 변환하여 반환
+      return this.mapToResponseDto(savedAudio);
+      
+    } catch (error) {
+      this.logger.error(`오디오 업로드 중 오류 발생: ${error.message}`, error.stack);
+      
+      // 임시 파일이 존재하는 경우 삭제 시도
+      try {
+        if (file && file.path && fs.existsSync(file.path)) {
+          await this.unlinkAsync(file.path);
+          this.logger.log(`오류 후 임시 파일 삭제 완료: ${file.path}`);
         }
-
-        this.supabase = createClient(supabaseUrl, supabaseKey);
+      } catch (cleanupError) {
+        this.logger.error(`임시 파일 삭제 중 오류: ${cleanupError.message}`);
+      }
+      
+      // 오류 유형에 따라 적절한 예외 발생
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(`오디오 저장 실패: ${error.message}`);
     }
+  }
 
-    async createAudio(
-        file: Express.Multer.File,
-        createAudioDto: CreateAudioDto,
-    ): Promise<AudioResponseDto> {
-        try {
-            console.log('createAudio 호출됨:', { 
-                filename: file.originalname,
-                mimetype: file.mimetype,
-                size: file.size,
-                bufferExists: !!file.buffer,
-                bufferLength: file.buffer?.length
-            });
-
-            // 파일 검증
-            if (!file || !file.buffer) {
-                throw new BadRequestException('유효한 파일이 제공되지 않았습니다');
-            }
-
-            // 1. 파일명 생성 (항상 .mp3 확장자 사용)
-            const fileName = `${uuidv4()}.mp3`;
-            console.log('생성된 파일명:', fileName);
-
-            // 2. mimeType 설정 (MP3로 취급, 변환 대신 메타데이터만 수정)
-            const mp3MimeType = 'audio/mp3';
-            
-            // 3. Supabase Storage에 파일 업로드 (원본 그대로 업로드하지만 MP3로 취급)
-            console.log('Supabase Storage 업로드 시작');
-            const { data, error } = await this.supabase
-                .storage
-                .from('audio')
-                .upload(fileName, file.buffer, {
-                    contentType: mp3MimeType, // MP3 MIME 타입으로 설정
-                });
-
-            console.log('Supabase 업로드 결과:', data);
-            
-            if (error) {
-                console.error('Supabase 업로드 오류:', error);
-                throw new InternalServerErrorException(`Supabase Storage 업로드 실패: ${error.message}`);
-            }
-
-            // 4. 파일의 공개 URL 가져오기
-            const urlData = this.supabase
-                .storage
-                .from('audio')
-                .getPublicUrl(fileName);
-
-            console.log('URL Data:', urlData);
-            const publicUrl = urlData.data.publicUrl;
-
-            if (!publicUrl) {
-                throw new InternalServerErrorException('공개 URL을 생성할 수 없습니다.');
-            }
-
-            // 5. 엔티티 생성 및 저장
-            const audioEntity = this.audioRepository.create({
-                filename: fileName,
-                originalName: `${path.parse(file.originalname).name}.mp3`, // 원본 파일명 + mp3 확장자
-                path: data.path,
-                size: file.size, // 원본 파일 크기 사용
-                mimeType: mp3MimeType, // MP3 MIME 타입으로 저장
-                url: publicUrl,
-                title: createAudioDto.title || path.parse(file.originalname).name, // title이 없으면 원본 파일명 사용
-                audioFileType: 'mp3', // 항상 MP3 타입으로 저장
-                userId: createAudioDto.user.id,
-            });
-
-            console.log('저장할 엔티티:', audioEntity);
-
-            // 6. DB에 저장
-            const savedAudio = await this.audioRepository.save(audioEntity);
-            console.log('DB에 저장된 오디오:', savedAudio);
-
-            // 7. DTO로 변환
-            const audioDto = plainToClass(AudioDto, savedAudio, {
-                excludeExtraneousValues: true
-            });
-
-            // 8. 응답 객체 반환
-            return {
-                success: true,
-                file: {
-                    id: audioDto.id,
-                    filename: audioDto.filename,
-                    originalName: audioDto.originalName,
-                    path: audioDto.path,
-                    size: audioDto.size,
-                    mimeType: audioDto.mimeType,
-                    url: audioDto.url,
-                    createdAt: audioDto.createdAt.toISOString(),
-                },
-            };
-        } catch (error) {
-            console.error('오디오 파일 처리 오류:', error);
-            throw new InternalServerErrorException(`오디오 파일 처리 중 오류 발생: ${error.message}`);
-        }
+  /**
+   * 파일을 R2에 업로드합니다.
+   * 
+   * @param filePath 로컬 파일 경로
+   * @param fileKey R2에 저장될 키(경로)
+   * @param mimeType 파일의 MIME 타입
+   * @returns 업로드 결과
+   */
+  private async uploadFileToR2(filePath: string, fileKey: string, mimeType: string = 'audio/webm'): Promise<any> {
+    const fileStream = fs.createReadStream(filePath);
+    const bucketName = this.configService.get('R2_BUCKET_NAME');
+    
+    // MIME 타입에서 기본 유형만 추출 (codecs 부분 제거)
+    const cleanMimeType = mimeType.split(';')[0].trim();
+    this.logger.log(`파일 MIME 타입: ${mimeType}, 정리된 타입: ${cleanMimeType}`);
+    
+    const upload = new Upload({
+      client: this.s3Client,
+      params: {
+        Bucket: bucketName,
+        Key: fileKey,
+        Body: fileStream,
+        ContentType: cleanMimeType,
+      },
+    });
+    
+    try {
+      const result = await upload.done();
+      return {
+        ...result,
+        Location: `https://${this.configService.get('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com/${bucketName}/${fileKey}`,
+      };
+    } catch (error) {
+      this.logger.error(`R2 업로드 실패: ${error.message}`, error.stack);
+      throw new Error(`R2 업로드 실패: ${error.message}`);
     }
+  }
 
-    async findAll(userId: string): Promise<AudioDto[]> {
-        const audios = await this.audioRepository.find({
-            where: { userId },
-            order: { createdAt: 'DESC' },
-        });
-
-        return audios.map(audio => plainToClass(AudioDto, audio, {
-            excludeExtraneousValues: true
-        }));
+//   /**
+//    * R2 오브젝트의 공개 URL을 생성합니다.
+//    * 
+//    * @param fileKey R2에 저장된 파일 키
+//    * @returns 공개 접근 가능한 URL
+//    */
+//   private generatePublicUrl(fileKey: string): string {
+//     const r2PublicUrl = this.configService.get('R2_PUBLIC_URL');
+//     const bucketName = this.configService.get('R2_BUCKET_NAME');
+    
+//     // R2_PUBLIC_URL이 설정된 경우 (Cloudflare Workers 등으로 공개 접근 가능한 경우)
+//     if (r2PublicUrl) {
+//       return `${r2PublicUrl}/${fileKey}`;
+//     }
+    
+//     // 기본 R2 URL 형식 (기본적으로 비공개이므로 실제 사용을 위해서는 공개 접근 설정 필요)
+//     return `https://${this.configService.get('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com/${bucketName}/${fileKey}`;
+//   }
+/**
+ * R2 오브젝트의 공개 URL을 생성합니다.
+ * 
+ * @param fileKey R2에 저장된 파일 키
+ * @returns 공개 접근 가능한 URL
+ */
+private generatePublicUrl(fileKey: string): string {
+    const r2PublicUrl = this.configService.get('R2_PUBLIC_URL');
+    
+    // R2_PUBLIC_URL이 설정된 경우 (Cloudflare Workers 등으로 공개 접근 가능한 경우)
+    if (r2PublicUrl) {
+      // 슬래시가 중복되지 않도록 처리
+      if (r2PublicUrl.endsWith('/')) {
+        return `${r2PublicUrl}${fileKey}`;
+      } else {
+        return `${r2PublicUrl}/${fileKey}`;
+      }
     }
-
-    async findOne(id: string, userId: string): Promise<AudioDto> {
-        const audio = await this.audioRepository.findOne({
-            where: { id, userId },
-        });
-
-        if (!audio) {
-            throw new Error('오디오를 찾을 수 없습니다');
-        }
-
-        return plainToClass(AudioDto, audio, {
-            excludeExtraneousValues: true
-        });
+    
+    // 기본 R2 URL 형식 (버킷 이름은 URL에 포함하지 않음)
+    const accountId = this.configService.get('R2_ACCOUNT_ID');
+    return `https://${accountId}.r2.cloudflarestorage.com/${fileKey}`;
+  }
+  /**
+   * 엔티티 객체를 응답 DTO로 변환합니다.
+   * 
+   * @param entity AudioEntity 객체
+   * @returns AudioResponseDto 객체
+   */
+  private mapToResponseDto(entity: AudioEntity): AudioResponseDto {
+    const responseDto = new AudioResponseDto();
+    responseDto.id = entity.id;
+    responseDto.title = entity.title;
+    responseDto.audioUrl = entity.audioUrl;
+    responseDto.userId = entity.userId;
+    
+    // user 관계가 로드된 경우에만 user 정보 포함
+    if (entity.user) {
+      responseDto.user = {
+        id: entity.user.id,
+        email: entity.user.email,
+        name: entity.user.name,
+        firstName: entity.user.firstName,
+        lastName: entity.user.lastName,
+        profilePicture: entity.user.profilePicture,
+        isEmailVerified: entity.user.isEmailVerified,
+      };
     }
+    
+    return responseDto;
+  }
 
-    async update(id: string, userId: string, updateData: Partial<Audio>): Promise<AudioDto> {
-        const audio = await this.audioRepository.findOne({
-            where: { id, userId },
-        });
-
-        if (!audio) {
-            throw new Error('오디오를 찾을 수 없습니다');
-        }
-
-        // 업데이트할 수 있는 필드만 선택적으로 업데이트
-        if (updateData.title) audio.title = updateData.title;
-        // audioFileType은 항상 'mp3'로 고정되므로 업데이트하지 않음
-
-        const updatedAudio = await this.audioRepository.save(audio);
-
-        return plainToClass(AudioDto, updatedAudio, {
-            excludeExtraneousValues: true
-        });
-    }
-
-    async remove(id: string, userId: string): Promise<boolean> {
-        const audio = await this.audioRepository.findOne({
-            where: { id, userId },
-        });
-
-        if (!audio) {
-            throw new Error('오디오를 찾을 수 없습니다');
-        }
-
-        // 1. Supabase Storage에서 파일 삭제
-        const { error } = await this.supabase
-            .storage
-            .from('audio')
-            .remove([audio.path]);
-
-        if (error) {
-            throw new InternalServerErrorException(`Supabase Storage 파일 삭제 실패: ${error.message}`);
-        }
-
-        // 2. DB에서 레코드 삭제
-        await this.audioRepository.remove(audio);
-
-        return true;
-    }
+  /**
+   * MIME 타입을 기반으로 적절한 파일 확장자 반환
+   */
+  private getExtensionFromMimeType(mimeType: string): string {
+    // MIME 타입에서 codecs 부분 제거
+    const baseMimeType = mimeType.split(';')[0].trim();
+    
+    // MIME 타입별 확장자 매핑
+    const mimeToExtension = {
+      'audio/webm': '.webm',
+      'audio/mp3': '.mp3',
+      'audio/mpeg': '.mp3',
+      'audio/wav': '.wav',
+      'audio/x-wav': '.wav',
+      'audio/ogg': '.ogg'
+    };
+    
+    return mimeToExtension[baseMimeType] || '.audio';
+  }
 }

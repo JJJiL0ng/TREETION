@@ -1,33 +1,39 @@
 import { Module } from '@nestjs/common';
-import { MulterModule } from '@nestjs/platform-express';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
-import { v4 as uuidv4 } from 'uuid'; // uuid 라이브러리 import
+import { ConfigModule } from '@nestjs/config';
 import { AudioController } from './audio.controller';
 import { AudioService } from './audio.service';
-import { Audio } from './entities/audio.entity';
-import { ConfigModule } from '@nestjs/config';
+import { AudioEntity } from './entities/audio.entity';
+import { MulterModule } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
+
+// 업로드 디렉토리 확인 및 생성
+const uploadDir = join(process.cwd(), 'uploads/temp');
+if (!existsSync(uploadDir)) {
+  mkdirSync(uploadDir, { recursive: true });
+}
+
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Audio]),
-    ConfigModule,
+    // Multer 설정
     MulterModule.register({
       storage: diskStorage({
-        destination: './uploads/audio',
-        filename: (req, file, callback) => {
-          // UUID를 사용하여 고유한 파일명 생성
-          const uuid = uuidv4();
-          const ext = extname(file.originalname);
-          callback(null, `${uuid}${ext}`);
+        destination: uploadDir,
+        filename: (req, file, cb) => {
+          // 파일명 처리는 컨트롤러에서 담당
+          cb(null, file.originalname);
         },
       }),
-      limits: {
-        fileSize: 10 * 1024 * 1024, // 10MB
-      },
     }),
+    // TypeORM 엔티티 등록
+    TypeOrmModule.forFeature([AudioEntity]),
+    // 환경 변수 사용을 위한 ConfigModule
+    ConfigModule,
   ],
   controllers: [AudioController],
   providers: [AudioService],
+  exports: [AudioService],
 })
 export class AudioModule {}

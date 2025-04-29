@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { join } from 'path';
+import storageConfig from './config/storage.config';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -21,6 +22,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { SttClovaModule } from './stt-clova/stt-clova.module';
 import { SttWhisperModule } from './stt-whisper/stt-whisper.module';
+import { StorageModule } from './storage/storage.module';
 
 // 환경 설정 관련
 import appConfig from './config/app.config';
@@ -33,7 +35,7 @@ import apiConfig from './config/api.config';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
-      load: [appConfig, dbConfig, apiConfig], // 설정 파일 로드
+      load: [appConfig, dbConfig, apiConfig, storageConfig], // 설정 파일 로드
     }),
     
     // 데이터베이스 설정
@@ -76,6 +78,7 @@ import apiConfig from './config/api.config';
     SvgModule,
     SttClovaModule,
     SttWhisperModule,
+    StorageModule,
   ],
   controllers: [AppController],
   providers: [

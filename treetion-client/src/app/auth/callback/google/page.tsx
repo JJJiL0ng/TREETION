@@ -26,7 +26,7 @@ export default function GoogleCallbackPage() {
         setDebugInfo('인증 코드 확인됨');
         
         if (!code) {
-          throw new Error('인증 코드가 제공되지 않았습니다.');
+          // throw new Error('인증 코드가 제공되지 않았습니다.');메
         }
         
         // 리다이렉트 URI 설정
@@ -36,7 +36,7 @@ export default function GoogleCallbackPage() {
         setDebugInfo('백엔드 API 요청 준비 중...');
         
         const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
-        const apiUrl = `${baseUrl}/api/auth/code`;
+        const apiUrl = `${baseUrl}/auth/code`;
         console.log('API URL:', apiUrl);
         
         setDebugInfo('백엔드로 요청 전송 중...');
