@@ -147,25 +147,47 @@ export class AudioService {
     }
   }
 
-  /**
-   * R2 오브젝트의 공개 URL을 생성합니다.
-   * 
-   * @param fileKey R2에 저장된 파일 키
-   * @returns 공개 접근 가능한 URL
-   */
-  private generatePublicUrl(fileKey: string): string {
+//   /**
+//    * R2 오브젝트의 공개 URL을 생성합니다.
+//    * 
+//    * @param fileKey R2에 저장된 파일 키
+//    * @returns 공개 접근 가능한 URL
+//    */
+//   private generatePublicUrl(fileKey: string): string {
+//     const r2PublicUrl = this.configService.get('R2_PUBLIC_URL');
+//     const bucketName = this.configService.get('R2_BUCKET_NAME');
+    
+//     // R2_PUBLIC_URL이 설정된 경우 (Cloudflare Workers 등으로 공개 접근 가능한 경우)
+//     if (r2PublicUrl) {
+//       return `${r2PublicUrl}/${fileKey}`;
+//     }
+    
+//     // 기본 R2 URL 형식 (기본적으로 비공개이므로 실제 사용을 위해서는 공개 접근 설정 필요)
+//     return `https://${this.configService.get('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com/${bucketName}/${fileKey}`;
+//   }
+/**
+ * R2 오브젝트의 공개 URL을 생성합니다.
+ * 
+ * @param fileKey R2에 저장된 파일 키
+ * @returns 공개 접근 가능한 URL
+ */
+private generatePublicUrl(fileKey: string): string {
     const r2PublicUrl = this.configService.get('R2_PUBLIC_URL');
-    const bucketName = this.configService.get('R2_BUCKET_NAME');
     
     // R2_PUBLIC_URL이 설정된 경우 (Cloudflare Workers 등으로 공개 접근 가능한 경우)
     if (r2PublicUrl) {
-      return `${r2PublicUrl}/${fileKey}`;
+      // 슬래시가 중복되지 않도록 처리
+      if (r2PublicUrl.endsWith('/')) {
+        return `${r2PublicUrl}${fileKey}`;
+      } else {
+        return `${r2PublicUrl}/${fileKey}`;
+      }
     }
     
-    // 기본 R2 URL 형식 (기본적으로 비공개이므로 실제 사용을 위해서는 공개 접근 설정 필요)
-    return `https://${this.configService.get('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com/${bucketName}/${fileKey}`;
+    // 기본 R2 URL 형식 (버킷 이름은 URL에 포함하지 않음)
+    const accountId = this.configService.get('R2_ACCOUNT_ID');
+    return `https://${accountId}.r2.cloudflarestorage.com/${fileKey}`;
   }
-
   /**
    * 엔티티 객체를 응답 DTO로 변환합니다.
    * 
