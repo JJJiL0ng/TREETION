@@ -43,19 +43,27 @@ export class AudioService {
    * 4. 임시 파일을 삭제합니다.
    * 5. 저장된 오디오 정보를 반환합니다.
    * 
-   * @param file 업로드된 WebM 오디오 파일 (Multer에 의해 임시 저장됨)
-   * @param createAudioDto 오디오 메타데이터 (제목, 녹음 날짜, 사용자 ID)
+   * @param file 업로드된 오디오 파일 (Multer에 의해 임시 저장됨)
+   * @param createAudioDto 오디오 메타데이터 (제목, 녹음 날짜)
+   * @param userId JWT에서 추출한 사용자 ID
    * @returns 저장된 오디오 정보와 URL을 포함한 DTO
    */
-  async create(file: Express.Multer.File, createAudioDto: CreateAudioDto): Promise<AudioResponseDto> {
-    this.logger.log(`오디오 파일 업로드 시작: ${file.originalname}`);
+  async create(
+    file: Express.Multer.File, 
+    createAudioDto: CreateAudioDto, 
+    userId: string
+  ): Promise<AudioResponseDto> {
+    this.logger.log(`사용자 ${userId}의 오디오 파일 업로드 시작: ${file.originalname}, 타입: ${file.mimetype}, 크기: ${file.size}바이트`);
     
     try {
       // 1. 파일 정보 준비
-      const fileKey = `audios/${createAudioDto.userId}/${path.basename(file.path)}`;
+      const fileExtension = path.extname(file.originalname) || this.getExtensionFromMimeType(file.mimetype);
+      const fileKey = `audios/${userId}/${Date.now()}${fileExtension}`;
       
-      // 2. R2에 파일 업로드
-      const uploadResult = await this.uploadFileToR2(file.path, fileKey);
+      this.logger.log(`사용할 파일 확장자: ${fileExtension}, 저장 경로: ${fileKey}`);
+      
+      // 2. R2에 파일 업로드 (파일의 MIME 타입 전달)
+      const uploadResult = await this.uploadFileToR2(file.path, fileKey, file.mimetype);
       this.logger.log(`R2 업로드 완료: ${uploadResult.Location}`);
       
       // 3. 공개 URL 생성 (ConfigService에서 가져온 PUBLIC_URL 사용)
@@ -64,14 +72,14 @@ export class AudioService {
       // 4. Supabase에 메타데이터 저장
       const audioEntity = this.audioRepository.create({
         title: createAudioDto.title,
-        userId: createAudioDto.userId,
+        userId: userId,
         audioUrl: publicUrl,
-        audioKey: fileKey, // 나중에 삭제할 때 필요한 키 저장
+        audioKey: fileKey,
         recordedAt: new Date(createAudioDto.recordedAt),
       });
       
       const savedAudio = await this.audioRepository.save(audioEntity);
-      this.logger.log(`오디오 메타데이터 저장 완료: ID ${savedAudio.id}`);
+      this.logger.log(`사용자 ${userId}의 오디오 메타데이터 저장 완료: ID ${savedAudio.id}`);
       
       // 5. 임시 파일 삭제
       await this.unlinkAsync(file.path);
@@ -106,11 +114,16 @@ export class AudioService {
    * 
    * @param filePath 로컬 파일 경로
    * @param fileKey R2에 저장될 키(경로)
+   * @param mimeType 파일의 MIME 타입
    * @returns 업로드 결과
    */
-  private async uploadFileToR2(filePath: string, fileKey: string): Promise<any> {
+  private async uploadFileToR2(filePath: string, fileKey: string, mimeType: string = 'audio/webm'): Promise<any> {
     const fileStream = fs.createReadStream(filePath);
     const bucketName = this.configService.get('R2_BUCKET_NAME');
+    
+    // MIME 타입에서 기본 유형만 추출 (codecs 부분 제거)
+    const cleanMimeType = mimeType.split(';')[0].trim();
+    this.logger.log(`파일 MIME 타입: ${mimeType}, 정리된 타입: ${cleanMimeType}`);
     
     const upload = new Upload({
       client: this.s3Client,
@@ -118,7 +131,7 @@ export class AudioService {
         Bucket: bucketName,
         Key: fileKey,
         Body: fileStream,
-        ContentType: 'audio/webm',
+        ContentType: cleanMimeType,
       },
     });
     
@@ -180,5 +193,25 @@ export class AudioService {
     }
     
     return responseDto;
+  }
+
+  /**
+   * MIME 타입을 기반으로 적절한 파일 확장자 반환
+   */
+  private getExtensionFromMimeType(mimeType: string): string {
+    // MIME 타입에서 codecs 부분 제거
+    const baseMimeType = mimeType.split(';')[0].trim();
+    
+    // MIME 타입별 확장자 매핑
+    const mimeToExtension = {
+      'audio/webm': '.webm',
+      'audio/mp3': '.mp3',
+      'audio/mpeg': '.mp3',
+      'audio/wav': '.wav',
+      'audio/x-wav': '.wav',
+      'audio/ogg': '.ogg'
+    };
+    
+    return mimeToExtension[baseMimeType] || '.audio';
   }
 }

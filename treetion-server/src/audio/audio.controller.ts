@@ -1,19 +1,12 @@
 import {
     Controller,
-    Get,
     Post,
-    Body,
-    Param,
-    Delete,
     UseInterceptors,
     UploadedFile,
     UseGuards,
-    Query,
-    HttpStatus,
-    ParseUUIDPipe,
     BadRequestException,
-    NotFoundException,
-    UnauthorizedException,
+    Req,
+    Body,
   } from '@nestjs/common';
   import { FileInterceptor } from '@nestjs/platform-express';
   import {
@@ -23,7 +16,6 @@ import {
     ApiConsumes,
     ApiBody,
     ApiBearerAuth,
-    ApiQuery,
   } from '@nestjs/swagger';
   import { AudioService } from './audio.service';
   import { CreateAudioDto } from './dto/create-audio.dto';
@@ -32,13 +24,41 @@ import {
   import { diskStorage } from 'multer';
   import { extname } from 'path';
   import { v4 as uuidv4 } from 'uuid';
+  import { Request } from 'express';
   
-  // WebM 파일만 허용하는 필터
-  const webmFileFilter = (req, file, callback) => {
-    // MIME 타입과 확장자 모두 확인
-    if (file.mimetype !== 'audio/webm' && !file.originalname.toLowerCase().endsWith('.webm')) {
-      return callback(new BadRequestException('WebM 형식의 오디오 파일만 업로드할 수 있습니다.'), false);
+  // 오디오 파일 필터 - 허용된 형식만 통과
+  const audioFileFilter = (req, file, callback) => {
+    // 다양한 오디오 형식 허용
+    const allowedMimeTypes = [
+      'audio/webm', 
+      'audio/webm;codecs=opus',  // 명시적으로 codecs=opus 지원 추가
+      'audio/mp3', 
+      'audio/mpeg',
+      'audio/wav',
+      'audio/x-wav'
+    ];
+    
+    console.log('업로드된 파일 MIME 타입:', file.mimetype);
+    
+    // MIME 타입에 codecs가 포함된 경우 (예: audio/webm;codecs=opus)
+    // 기본 MIME 타입만 추출하여 확인
+    const baseMimeType = file.mimetype.split(';')[0].trim();
+    
+    // 전체 MIME 타입이 허용 목록에 있는지 먼저 확인
+    if (allowedMimeTypes.includes(file.mimetype)) {
+      // 전체 MIME 타입(codecs 포함)이 허용 목록에 있으면 통과
+      return callback(null, true);
     }
+    
+    // 기본 MIME 타입이 허용 목록에 있는지 확인
+    if (!allowedMimeTypes.includes(baseMimeType)) {
+      // 오디오 형식이 아닌 경우에만 거부
+      if (!baseMimeType.startsWith('audio/')) {
+        return callback(new BadRequestException('지원되는 오디오 형식이 아닙니다. 오디오 파일만 업로드 가능합니다.'), false);
+      }
+    }
+    
+    // 허용된 형식이거나 audio/ 접두사가 있으면 통과
     callback(null, true);
   };
   
@@ -61,23 +81,44 @@ import {
   
     /**
      * 오디오 파일을 업로드하고 메타데이터와 함께 저장합니다.
+     * 인증된 사용자의 정보는 JWT 토큰에서 추출됩니다.
      * 
-     * 1. FileInterceptor를 사용하여 WebM 형식의 오디오 파일만 받습니다.
+     * 1. FileInterceptor를 사용하여 허용된 오디오 형식만 받습니다.
      * 2. 파일을 임시로 저장합니다.
-     * 3. R2에 파일을 업로드하고 URL을 받습니다.
-     * 4. Supabase에 메타데이터와 R2 URL을 저장합니다.
-     * 5. 임시 파일은 삭제합니다.
+     * 3. JWT 토큰에서 사용자 ID를 추출합니다.
+     * 4. R2에 파일을 업로드하고 URL을 받습니다.
+     * 5. Supabase에 메타데이터와 R2 URL을 저장합니다.
+     * 6. 임시 파일은 삭제합니다.
      * 
-     * @param file 업로드된 WebM 오디오 파일
-     * @param createAudioDto 오디오 메타데이터 (제목, 녹음 날짜, 사용자 ID)
+     * @param file 업로드된 오디오 파일
+     * @param createAudioDto 오디오 메타데이터 (제목, 녹음 날짜)
+     * @param req 요청 객체 (JWT 토큰에서 사용자 정보 추출용)
      * @returns 저장된 오디오 정보와 URL
      */
     @Post('upload')
-    @ApiOperation({ summary: 'WebM 오디오 파일 업로드' })
+    @ApiOperation({ summary: '오디오 파일 업로드' })
     @ApiConsumes('multipart/form-data')
     @ApiBody({
-      description: 'WebM 오디오 파일과 메타데이터',
-      type: CreateAudioDto,
+      schema: {
+        type: 'object',
+        properties: {
+          audioFile: {
+            type: 'string',
+            format: 'binary',
+            description: '업로드할 오디오 파일'
+          },
+          title: {
+            type: 'string',
+            description: '오디오 제목'
+          },
+          recordedAt: {
+            type: 'string',
+            format: 'date-time',
+            description: '녹음 날짜 (ISO 형식)'
+          }
+        },
+        required: ['audioFile', 'title', 'recordedAt']
+      }
     })
     @ApiResponse({
       status: 201,
@@ -86,7 +127,7 @@ import {
     })
     @UseInterceptors(FileInterceptor('audioFile', {
       storage: multerStorage,
-      fileFilter: webmFileFilter,
+      fileFilter: audioFileFilter,
       limits: {
         fileSize: 1024 * 1024 * 55, // 55MB 제한 (1시간 오디오 가정 + 여유분)
       },
@@ -94,17 +135,38 @@ import {
     async create(
       @UploadedFile() file: Express.Multer.File,
       @Body() createAudioDto: CreateAudioDto,
+      @Req() req: Request,
     ): Promise<AudioResponseDto> {
       try {
         // 파일이 없는 경우 예외 처리
         if (!file) {
-          throw new BadRequestException('오디오 파일이 필요합니다.');
+          throw new BadRequestException('오디오 파일이 필요합니다. multipart/form-data 형식으로 audioFile 필드에 파일을 첨부해주세요.');
+        }
+
+        console.log('받은 파일 정보:', {
+          filename: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+          path: file.path
+        });
+        
+        console.log('받은 DTO 정보:', createAudioDto);
+
+        // JWT에서 사용자 정보 추출
+        // req.user는 JwtAuthGuard에 의해 설정됨
+        // 타입 단언을 통해 user 객체에 접근
+        const user = req.user as { id: string, [key: string]: any };
+        
+        if (!user || !user.id) {
+          throw new BadRequestException('인증된 사용자 정보를 찾을 수 없습니다.');
         }
   
-        // 서비스 호출하여 R2에 업로드 및 Supabase에 저장
-        return await this.audioService.create(file, createAudioDto);
+        // 서비스 호출 시 JWT에서 추출한 사용자 ID 전달
+        return await this.audioService.create(file, createAudioDto, user.id);
       } catch (error) {
         // 오류 발생 시 적절한 예외 처리 및 로깅
+        console.error('오디오 업로드 오류:', error);
+        
         if (error.status) {
           // NestJS HTTP 예외는 그대로 전달
           throw error;
@@ -114,105 +176,4 @@ import {
         throw new BadRequestException(`오디오 업로드 실패: ${error.message}`);
       }
     }
-}
-//     /**
-//      * 사용자 ID를 기준으로 오디오 목록을 페이지네이션하여 조회합니다.
-//      * 
-//      * @param userId 사용자 ID
-//      * @param page 페이지 번호 (기본값: 1)
-//      * @param limit 페이지당 항목 수 (기본값: 10)
-//      * @returns 오디오 목록과 페이지네이션 메타 정보
-//      */
-//     @Get('user/:userId')
-//     @ApiOperation({ summary: '사용자의 오디오 목록 조회' })
-//     @ApiQuery({ name: 'page', required: false, type: Number })
-//     @ApiQuery({ name: 'limit', required: false, type: Number })
-//     @ApiResponse({
-//       status: 200,
-//       description: '오디오 목록 조회 성공',
-//       type: [AudioResponseDto],
-//     })
-//     async findAllByUser(
-//       @Param('userId', ParseUUIDPipe) userId: string,
-//       @Query('page') page = 1,
-//       @Query('limit') limit = 10,
-//     ): Promise<{ data: AudioResponseDto[]; meta: { total: number; page: number; limit: number } }> {
-//       try {
-//         // 페이지 및 제한 값이 양수인지 확인
-//         if (page < 1 || limit < 1) {
-//           throw new BadRequestException('페이지와 제한 값은 1 이상이어야 합니다.');
-//         }
-  
-//         return await this.audioService.findAllByUser(userId, page, limit);
-//       } catch (error) {
-//         if (error.status) throw error;
-//         throw new BadRequestException(`조회 실패: ${error.message}`);
-//       }
-//     }
-  
-//     /**
-//      * 특정 ID의 오디오를 조회합니다.
-//      * 
-//      * @param id 오디오 ID (UUID)
-//      * @returns 오디오 정보와 URL
-//      */
-//     @Get(':id')
-//     @ApiOperation({ summary: '특정 오디오 조회' })
-//     @ApiResponse({
-//       status: 200,
-//       description: '오디오 조회 성공',
-//       type: AudioResponseDto,
-//     })
-//     @ApiResponse({ status: 404, description: '오디오를 찾을 수 없습니다' })
-//     async findOne(@Param('id', ParseUUIDPipe) id: string): Promise<AudioResponseDto> {
-//       try {
-//         const audio = await this.audioService.findOne(id);
-//         if (!audio) {
-//           throw new NotFoundException(`ID ${id}의 오디오를 찾을 수 없습니다.`);
-//         }
-//         return audio;
-//       } catch (error) {
-//         if (error.status) throw error;
-//         throw new BadRequestException(`조회 실패: ${error.message}`);
-//       }
-//     }
-  
-//     /**
-//      * 특정 ID의 오디오를 삭제합니다.
-//      * R2의 파일과 Supabase의 메타데이터 모두 삭제합니다.
-//      * 
-//      * @param id 오디오 ID (UUID)
-//      * @param userId 삭제 요청 사용자 ID (소유자 확인용) 
-//      */
-//     @Delete(':id')
-//     @ApiOperation({ summary: '오디오 삭제' })
-//     @ApiResponse({
-//       status: HttpStatus.NO_CONTENT,
-//       description: '오디오 삭제 성공',
-//     })
-//     @ApiResponse({ status: 404, description: '오디오를 찾을 수 없습니다' })
-//     @ApiResponse({ status: 403, description: '삭제 권한이 없습니다' })
-//     async remove(
-//       @Param('id', ParseUUIDPipe) id: string,
-//       @Query('userId', ParseUUIDPipe) userId: string,
-//     ): Promise<void> {
-//       try {
-//         // 오디오 존재 여부 확인
-//         const audio = await this.audioService.findOne(id);
-//         if (!audio) {
-//           throw new NotFoundException(`ID ${id}의 오디오를 찾을 수 없습니다.`);
-//         }
-        
-//         // 소유자 권한 확인
-//         if (audio.userId !== userId) {
-//           throw new UnauthorizedException('이 오디오를 삭제할 권한이 없습니다.');
-//         }
-        
-//         // R2 및 Supabase에서 삭제
-//         await this.audioService.remove(id);
-//       } catch (error) {
-//         if (error.status) throw error;
-//         throw new BadRequestException(`삭제 실패: ${error.message}`);
-//       }
-//     }
-    
+  }
