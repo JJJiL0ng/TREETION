@@ -6,6 +6,7 @@ export default function DashboardPage() {
   return (
     <div className="p-4 md:p-6">
       <div className="grid gap-6 w-full">
+        <h2 className="text-2xl font-bold">대시보드</h2>
         {/* 빠른 액션 */}
         <Card className="w-full">
           <CardHeader className="pb-3">

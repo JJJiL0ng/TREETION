@@ -27,7 +27,7 @@ export default function DashboardLayout({
       <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} />
       <main
         className={cn(
-          "pt-16 transition-all duration-300",
+          "transition-all duration-300",
           !isMobile && sidebarOpen ? "md:ml-[240px]" : "ml-0"
         )}
       >

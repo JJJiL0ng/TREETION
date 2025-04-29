@@ -125,7 +125,7 @@ export function Sidebar({ isOpen, className, onClose }: SidebarProps) {
               isActive={true}
             />
             <NavItem
-              href="/recording"
+              href="/dashboard/voice-writing"
               icon={<FileAudio className="h-5 w-5" />}
               label="음성 필기"
             />
