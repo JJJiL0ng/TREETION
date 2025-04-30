@@ -1,13 +1,14 @@
 // src/app/auth/login/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import GoogleButton from '@/components/auth/GoogleButton';
 import { useUserStore } from '@/store/user-store';
 
-export default function LoginPage() {
+// useSearchParams()를 사용하는 컴포넌트를 별도로 분리
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
@@ -140,5 +141,18 @@ export default function LoginPage() {
         <p>로그인 시 트리션의 <Link href="/terms" className="text-primary hover:underline">이용약관</Link>과 <Link href="/privacy" className="text-primary hover:underline">개인정보 처리방침</Link>에 동의하게 됩니다.</p>
       </div>
     </div>
+  );
+}
+
+// 메인 컴포넌트에서 Suspense로 감싸기
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-[300px]">
+        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   );
 }
