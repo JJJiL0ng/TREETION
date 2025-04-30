@@ -1,42 +1,62 @@
-// components/auth/GoogleButton.tsx 수정
+// src/components/auth/GoogleButton.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import { getGoogleLoginUrl } from '@/lib/api/auth/utils';
 
 interface GoogleButtonProps {
   isLoading?: boolean;
+  redirectUri?: string;
+  clientId?: string;
 }
 
-export default function GoogleButton({ isLoading = false }: GoogleButtonProps) {
+export default function GoogleButton({ 
+  isLoading = false,
+  redirectUri,
+  clientId
+}: GoogleButtonProps) {
+  console.log('[GoogleButton] 렌더링, props:', { isLoading, redirectUri: redirectUri || '기본값', clientId: clientId ? '있음' : '없음' });
+  
   const [localLoading, setLocalLoading] = useState(false);
   
-  const handleGoogleLogin = async () => {
+  const handleGoogleLogin = useCallback(async () => {
+    console.log('[GoogleButton] 구글 로그인 버튼 클릭');
     setLocalLoading(true);
     
     try {
-      // 올바른 클라이언트 ID 사용 확인
-      const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+      // 환경 변수에서 클라이언트 ID 사용, 또는 props로 전달된 값 사용
+      const googleClientId = clientId || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+      console.log('[GoogleButton] NEXT_PUBLIC_GOOGLE_CLIENT_ID:', process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ? '설정됨' : '설정되지 않음');
+      console.log('[GoogleButton] 사용할 클라이언트 ID:', googleClientId ? '있음' : '없음');
       
-      // 정확한 리다이렉트 URI 설정
-      const redirectUri = `${window.location.origin}/auth/callback/google`;
+      if (!googleClientId) {
+        throw new Error('Google 클라이언트 ID가 설정되지 않았습니다.');
+      }
       
-      // 올바른 스코프 설정
-      const scope = encodeURIComponent('email profile');
+      // 리다이렉트 URI 설정
+      const googleRedirectUri = redirectUri || `${window.location.origin}/auth/callback/google`;
+      console.log('[GoogleButton] 리다이렉트 URI:', googleRedirectUri);
       
-      // 상태 파라미터 추가 (CSRF 보호)
+      // CSRF 보호를 위한 상태 생성
       const state = Math.random().toString(36).substring(2);
       sessionStorage.setItem('oauth_state', state);
+      console.log('[GoogleButton] CSRF 상태 생성:', state);
       
-      // 완성된 인증 URL
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&state=${state}&access_type=offline&prompt=consent`;
+      // 인증 유틸리티를 사용하여 로그인 URL 생성
+      const loginUrl = getGoogleLoginUrl(googleRedirectUri, googleClientId);
+      console.log('[GoogleButton] 생성된 로그인 URL (부분):', loginUrl.substring(0, 100) + '...');
+      
+      // 상태 파라미터 추가
+      const urlWithState = `${loginUrl}&state=${state}`;
+      console.log('[GoogleButton] 상태가 추가된 최종 URL로 리다이렉트 준비');
       
       // 구글 로그인 페이지로 리다이렉트
-      window.location.href = authUrl;
+      window.location.href = urlWithState;
     } catch (err) {
-      console.error('Google 로그인 시작 중 오류 발생:', err);
+      console.error('[GoogleButton] Google 로그인 시작 중 오류 발생:', err);
       setLocalLoading(false);
     }
-  };
+  }, [clientId, redirectUri]);
 
   // 외부에서 전달받은 로딩 상태 또는 내부 로딩 상태 사용
   const showLoading = isLoading || localLoading;
