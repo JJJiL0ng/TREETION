@@ -46,5 +46,3 @@ export default function Home(): JSX.Element {
  );
 }
 
-// 각 섹션별 데이터는 실제 컴포넌트에서 로드하거나 하드코딩할 수 있습니다.
-// SSR을 활용한 애니메이션은 각 컴포넌트 내부에서 관리합니다.

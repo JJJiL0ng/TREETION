@@ -1,323 +1,179 @@
-// src/audio/audio.controller.ts
-import { 
-    Controller, 
-    Get, 
-    Post, 
-    Put, 
-    Delete, 
-    Body, 
-    Param, 
-    Query, 
-    UseGuards, 
-    UploadedFile, 
+import {
+    Controller,
+    Post,
     UseInterceptors,
-    Req,
-    Res,
-    HttpStatus,
+    UploadedFile,
+    UseGuards,
     BadRequestException,
-    StreamableFile
+    Req,
+    Body,
   } from '@nestjs/common';
   import { FileInterceptor } from '@nestjs/platform-express';
-  import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-  import { Request, Response } from 'express';
-  import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+  import {
+    ApiTags,
+    ApiOperation,
+    ApiResponse,
+    ApiConsumes,
+    ApiBody,
+    ApiBearerAuth,
+  } from '@nestjs/swagger';
   import { AudioService } from './audio.service';
-  
-  // DTO 임포트
-  import { AudioUploadDto } from './dto/audio-upload.dto';
-  import { ChunkUploadInitDto } from './dto/chunk-upload-init.dto';
-  import { ChunkUploadDto } from './dto/chunk-upload.dto';
-  import { ChunkUploadCompleteDto } from './dto/chunk-upload-complete.dto';
-  import { AudioFileQueryDto } from './dto/audio-file-query.dto';
-  import { AudioUpdateDto } from './dto/audio-update.dto';
-  import { TranscribeRequestDto } from './dto/transcribe-request.dto';
-  import { AudioStreamQueryDto } from './dto/audio-stream-query.dto';
-  import { WaveformQueryDto } from './dto/waveform-query.dto';
-  import { UsageStatsQueryDto } from './dto/usage-stats-query.dto';
-
-
-  import { User } from '../users/entities/user.entity';
-  
+  import { CreateAudioDto } from './dto/create-audio.dto';
+  import { AudioResponseDto } from './dto/audio-response.dto';
+  import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
   import { diskStorage } from 'multer';
   import { extname } from 'path';
   import { v4 as uuidv4 } from 'uuid';
+  import { Request } from 'express';
   
-  // Express Request에 user 속성 추가
-  interface RequestWithUser extends Request {
-    user: User;
-  }
+  // 오디오 파일 필터 - 허용된 형식만 통과
+  const audioFileFilter = (req, file, callback) => {
+    // 다양한 오디오 형식 허용
+    const allowedMimeTypes = [
+      'audio/webm', 
+      'audio/webm;codecs=opus',  // 명시적으로 codecs=opus 지원 추가
+      'audio/mp3', 
+      'audio/mpeg',
+      'audio/wav',
+      'audio/x-wav'
+    ];
+    
+    console.log('업로드된 파일 MIME 타입:', file.mimetype);
+    
+    // MIME 타입에 codecs가 포함된 경우 (예: audio/webm;codecs=opus)
+    // 기본 MIME 타입만 추출하여 확인
+    const baseMimeType = file.mimetype.split(';')[0].trim();
+    
+    // 전체 MIME 타입이 허용 목록에 있는지 먼저 확인
+    if (allowedMimeTypes.includes(file.mimetype)) {
+      // 전체 MIME 타입(codecs 포함)이 허용 목록에 있으면 통과
+      return callback(null, true);
+    }
+    
+    // 기본 MIME 타입이 허용 목록에 있는지 확인
+    if (!allowedMimeTypes.includes(baseMimeType)) {
+      // 오디오 형식이 아닌 경우에만 거부
+      if (!baseMimeType.startsWith('audio/')) {
+        return callback(new BadRequestException('지원되는 오디오 형식이 아닙니다. 오디오 파일만 업로드 가능합니다.'), false);
+      }
+    }
+    
+    // 허용된 형식이거나 audio/ 접두사가 있으면 통과
+    callback(null, true);
+  };
+  
+  // 임시 저장을 위한 디스크 스토리지 설정
+  const multerStorage = diskStorage({
+    destination: './uploads/temp', // 임시 저장 경로 (실제 프로젝트에서는 설정 파일에서 관리하는 것이 좋습니다)
+    filename: (req, file, callback) => {
+      // UUID를 사용하여 고유한 파일명 생성
+      const uniqueFileName = `${uuidv4()}${extname(file.originalname)}`;
+      callback(null, uniqueFileName);
+    }
+  });
   
   @ApiTags('audio')
   @Controller('audio')
-  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   export class AudioController {
     constructor(private readonly audioService: AudioService) {}
   
-    // 단일 파일 업로드
+    /**
+     * 오디오 파일을 업로드하고 메타데이터와 함께 저장합니다.
+     * 인증된 사용자의 정보는 JWT 토큰에서 추출됩니다.
+     * 
+     * 1. FileInterceptor를 사용하여 허용된 오디오 형식만 받습니다.
+     * 2. 파일을 임시로 저장합니다.
+     * 3. JWT 토큰에서 사용자 ID를 추출합니다.
+     * 4. R2에 파일을 업로드하고 URL을 받습니다.
+     * 5. Supabase에 메타데이터와 R2 URL을 저장합니다.
+     * 6. 임시 파일은 삭제합니다.
+     * 
+     * @param file 업로드된 오디오 파일
+     * @param createAudioDto 오디오 메타데이터 (제목, 녹음 날짜)
+     * @param req 요청 객체 (JWT 토큰에서 사용자 정보 추출용)
+     * @returns 저장된 오디오 정보와 URL
+     */
     @Post('upload')
     @ApiOperation({ summary: '오디오 파일 업로드' })
     @ApiConsumes('multipart/form-data')
-    @ApiResponse({ status: 201, description: '파일 업로드 성공' })
-    @ApiResponse({ status: 400, description: '파일 형식 오류 또는 크기 제한 초과' })
-    @ApiResponse({ status: 403, description: '스토리지 한도 초과' })
-    @UseInterceptors(
-      FileInterceptor('file', {
-        limits: {
-          fileSize: 500 * 1024 * 1024, // 500MB
-        },
-        fileFilter: (req, file, cb) => {
-          // 오디오 파일 형식 검증
-          const allowedMimeTypes = ['audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/ogg'];
-          if (allowedMimeTypes.includes(file.mimetype)) {
-            cb(null, true);
-          } else {
-            cb(new BadRequestException('INVALID_FILE_FORMAT'), false);
+    @ApiBody({
+      schema: {
+        type: 'object',
+        properties: {
+          audioFile: {
+            type: 'string',
+            format: 'binary',
+            description: '업로드할 오디오 파일'
+          },
+          title: {
+            type: 'string',
+            description: '오디오 제목'
+          },
+          recordedAt: {
+            type: 'string',
+            format: 'date-time',
+            description: '녹음 날짜 (ISO 형식)'
           }
         },
-      }),
-    )
-    async uploadAudioFile(
+        required: ['audioFile', 'title', 'recordedAt']
+      }
+    })
+    @ApiResponse({
+      status: 201,
+      description: '오디오 업로드 성공',
+      type: AudioResponseDto,
+    })
+    @UseInterceptors(FileInterceptor('audioFile', {
+      storage: multerStorage,
+      fileFilter: audioFileFilter,
+      limits: {
+        fileSize: 1024 * 1024 * 55, // 55MB 제한 (1시간 오디오 가정 + 여유분)
+      },
+    }))
+    async create(
       @UploadedFile() file: Express.Multer.File,
-      @Body() audioUploadDto: AudioUploadDto,
-      @Req() req: RequestWithUser,
-    ) {
-      if (!file) {
-        throw new BadRequestException('파일이 제공되지 않았습니다.');
+      @Body() createAudioDto: CreateAudioDto,
+      @Req() req: Request,
+    ): Promise<AudioResponseDto> {
+      try {
+        // 파일이 없는 경우 예외 처리
+        if (!file) {
+          throw new BadRequestException('오디오 파일이 필요합니다. multipart/form-data 형식으로 audioFile 필드에 파일을 첨부해주세요.');
+        }
+
+        console.log('받은 파일 정보:', {
+          filename: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+          path: file.path
+        });
+        
+        console.log('받은 DTO 정보:', createAudioDto);
+
+        // JWT에서 사용자 정보 추출
+        // req.user는 JwtAuthGuard에 의해 설정됨
+        // 타입 단언을 통해 user 객체에 접근
+        const user = req.user as { id: string, [key: string]: any };
+        
+        if (!user || !user.id) {
+          throw new BadRequestException('인증된 사용자 정보를 찾을 수 없습니다.');
+        }
+  
+        // 서비스 호출 시 JWT에서 추출한 사용자 ID 전달
+        return await this.audioService.create(file, createAudioDto, user.id);
+      } catch (error) {
+        // 오류 발생 시 적절한 예외 처리 및 로깅
+        console.error('오디오 업로드 오류:', error);
+        
+        if (error.status) {
+          // NestJS HTTP 예외는 그대로 전달
+          throw error;
+        }
+        
+        // 기타 예외는 BadRequestException으로 변환
+        throw new BadRequestException(`오디오 업로드 실패: ${error.message}`);
       }
-      
-      const userId = req.user.id;
-      return this.audioService.uploadAudioFile(file, userId, audioUploadDto);
-    }
-  
-    // 청크 업로드 초기화
-    @Post('upload/chunk/init')
-    @ApiOperation({ summary: '청크 업로드 세션 초기화' })
-    @ApiResponse({ status: 201, description: '청크 업로드 세션 생성 성공' })
-    @ApiResponse({ status: 400, description: '파일 크기 제한 초과' })
-    @ApiResponse({ status: 403, description: '스토리지 한도 초과' })
-    async initChunkUpload(
-      @Body() chunkUploadInitDto: ChunkUploadInitDto,
-      @Req() req: RequestWithUser,
-    ) {
-      const userId = req.user.id;
-      return this.audioService.initChunkUpload(userId, chunkUploadInitDto);
-    }
-  
-    // 청크 업로드
-    @Post('upload/chunk')
-    @ApiOperation({ summary: '파일 청크 업로드' })
-    @ApiConsumes('multipart/form-data')
-    @ApiResponse({ status: 200, description: '청크 업로드 성공' })
-    @ApiResponse({ status: 400, description: '유효하지 않은 청크 또는 세션 만료' })
-    @ApiResponse({ status: 404, description: '세션 ID를 찾을 수 없음' })
-    @UseInterceptors(
-      FileInterceptor('chunk', {
-        limits: {
-          fileSize: 10 * 1024 * 1024, // 10MB (청크 최대 크기)
-        },
-      }),
-    )
-    async uploadChunk(
-      @UploadedFile() chunk: Express.Multer.File,
-      @Body('uploadId') uploadId: string,
-      @Body('chunkNumber') chunkNumber: number,
-      @Req() req: RequestWithUser,
-    ) {
-      if (!chunk) {
-        throw new BadRequestException('청크 데이터가 제공되지 않았습니다.');
-      }
-      
-      if (!uploadId) {
-        throw new BadRequestException('업로드 ID가 필요합니다.');
-      }
-      
-      if (chunkNumber === undefined || isNaN(Number(chunkNumber))) {
-        throw new BadRequestException('유효한 청크 번호가 필요합니다.');
-      }
-      
-      const userId = req.user.id;
-      return this.audioService.uploadChunk(userId, uploadId, Number(chunkNumber), chunk.buffer);
-    }
-  
-    // 청크 업로드 완료
-    @Post('upload/chunk/complete')
-    @ApiOperation({ summary: '청크 업로드 완료' })
-    @ApiResponse({ status: 200, description: '파일 병합 성공' })
-    @ApiResponse({ status: 400, description: '불완전한 업로드 또는 세션 만료' })
-    @ApiResponse({ status: 404, description: '세션 ID를 찾을 수 없음' })
-    async completeChunkUpload(
-      @Body() chunkUploadCompleteDto: ChunkUploadCompleteDto,
-      @Req() req: RequestWithUser,
-    ) {
-      const userId = req.user.id;
-      return this.audioService.completeChunkUpload(userId, chunkUploadCompleteDto);
-    }
-  
-    // 오디오 파일 목록 조회
-    @Get('files')
-    @ApiOperation({ summary: '오디오 파일 목록 조회' })
-    @ApiResponse({ status: 200, description: '파일 목록 조회 성공' })
-    async getAudioFiles(
-      @Query() query: AudioFileQueryDto,
-      @Req() req: RequestWithUser,
-    ) {
-      const userId = req.user.id;
-      return this.audioService.getAudioFiles(userId, query);
-    }
-  
-    // 오디오 파일 상세 조회
-    @Get('files/:audioId')
-    @ApiOperation({ summary: '오디오 파일 상세 조회' })
-    @ApiResponse({ status: 200, description: '파일 상세 조회 성공' })
-    @ApiResponse({ status: 404, description: '파일을 찾을 수 없음' })
-    async getAudioFile(
-      @Param('audioId') audioId: string,
-      @Req() req: RequestWithUser,
-    ) {
-      const userId = req.user.id;
-      return this.audioService.getAudioFile(userId, audioId);
-    }
-  
-    // 오디오 파일 정보 수정
-    @Put('files/:audioId')
-    @ApiOperation({ summary: '오디오 파일 정보 수정' })
-    @ApiResponse({ status: 200, description: '파일 정보 수정 성공' })
-    @ApiResponse({ status: 404, description: '파일을 찾을 수 없음' })
-    async updateAudioFile(
-      @Param('audioId') audioId: string,
-      @Body() updateDto: AudioUpdateDto,
-      @Req() req: RequestWithUser,
-    ) {
-      const userId = req.user.id;
-      return this.audioService.updateAudioFile(userId, audioId, updateDto);
-    }
-  
-    // 오디오 파일 삭제
-    @Delete('files/:audioId')
-    @ApiOperation({ summary: '오디오 파일 삭제' })
-    @ApiResponse({ status: 200, description: '파일 삭제 성공' })
-    @ApiResponse({ status: 404, description: '파일을 찾을 수 없음' })
-    async deleteAudioFile(
-      @Param('audioId') audioId: string,
-      @Req() req: RequestWithUser,
-    ) {
-      const userId = req.user.id;
-      return this.audioService.deleteAudioFile(userId, audioId);
-    }
-  
-    // 음성 인식(STT) 요청
-    @Post('transcribe')
-    @ApiOperation({ summary: '음성 인식 요청' })
-    @ApiResponse({ status: 201, description: '음성 인식 요청 성공' })
-    @ApiResponse({ status: 404, description: '오디오 파일을 찾을 수 없음' })
-    @ApiResponse({ status: 403, description: '음성 인식 시간 한도 초과' })
-    async requestTranscription(
-      @Body() transcribeRequest: TranscribeRequestDto,
-      @Req() req: RequestWithUser,
-    ) {
-      const userId = req.user.id;
-      return this.audioService.requestTranscription(userId, transcribeRequest);
-    }
-  
-    // 음성 인식 상태 확인
-    @Get('transcribe/status/:transcriptionId')
-    @ApiOperation({ summary: '음성 인식 상태 확인' })
-    @ApiResponse({ status: 200, description: '상태 조회 성공' })
-    @ApiResponse({ status: 404, description: '변환 작업을 찾을 수 없음' })
-    async getTranscriptionStatus(
-      @Param('transcriptionId') transcriptionId: string,
-      @Req() req: RequestWithUser,
-    ) {
-      const userId = req.user.id;
-      return this.audioService.getTranscriptionStatus(userId, transcriptionId);
-    }
-  
-    // 음성 인식 결과 조회
-    @Get('transcribe/result/:transcriptionId')
-    @ApiOperation({ summary: '음성 인식 결과 조회' })
-    @ApiResponse({ status: 200, description: '결과 조회 성공' })
-    @ApiResponse({ status: 400, description: '변환이 완료되지 않음' })
-    @ApiResponse({ status: 404, description: '변환 작업을 찾을 수 없음' })
-    async getTranscriptionResult(
-      @Param('transcriptionId') transcriptionId: string,
-      @Req() req: RequestWithUser,
-    ) {
-      const userId = req.user.id;
-      return this.audioService.getTranscriptionResult(userId, transcriptionId);
-    }
-  
-    // 음성 인식 취소
-    @Post('transcribe/cancel/:transcriptionId')
-    @ApiOperation({ summary: '음성 인식 취소' })
-    @ApiResponse({ status: 200, description: '취소 성공' })
-    @ApiResponse({ status: 400, description: '이미 완료되거나 취소된 작업' })
-    @ApiResponse({ status: 404, description: '변환 작업을 찾을 수 없음' })
-    async cancelTranscription(
-      @Param('transcriptionId') transcriptionId: string,
-      @Req() req: RequestWithUser,
-    ) {
-      const userId = req.user.id;
-      return this.audioService.cancelTranscription(userId, transcriptionId);
-    }
-  
-    // 오디오 스트리밍
-    @Get('stream/:audioId')
-    @ApiOperation({ summary: '오디오 스트리밍' })
-    @ApiResponse({ status: 200, description: '스트리밍 성공' })
-    @ApiResponse({ status: 404, description: '파일을 찾을 수 없음' })
-    async streamAudio(
-      @Param('audioId') audioId: string,
-      @Query() query: AudioStreamQueryDto,
-      @Req() req: RequestWithUser,
-      @Res({ passthrough: true }) res: Response,
-    ) {
-      const userId = req.user.id;
-      const streamableFile = await this.audioService.streamAudio(userId, audioId, query);
-      
-      // 적절한 헤더 설정
-      res.set({
-        'Content-Type': 'audio/mpeg',
-        'Accept-Ranges': 'bytes',
-      });
-      
-      return streamableFile;
-    }
-  
-    // 파형 데이터 조회
-    @Get('waveform/:audioId')
-    @ApiOperation({ summary: '파형 데이터 조회' })
-    @ApiResponse({ status: 200, description: '파형 데이터 조회 성공' })
-    @ApiResponse({ status: 404, description: '파일을 찾을 수 없음' })
-    async getWaveformData(
-      @Param('audioId') audioId: string,
-      @Query() query: WaveformQueryDto,
-      @Req() req: RequestWithUser,
-    ) {
-      const userId = req.user.id;
-      return this.audioService.getWaveformData(userId, audioId, query);
-    }
-  
-    // 사용량 통계 조회
-    @Get('usage/stats')
-    @ApiOperation({ summary: '사용량 통계 조회' })
-    @ApiResponse({ status: 200, description: '통계 조회 성공' })
-    async getUsageStats(
-      @Query() query: UsageStatsQueryDto,
-      @Req() req: RequestWithUser,
-    ) {
-      const userId = req.user.id;
-      return this.audioService.getUsageStats(userId, query);
-    }
-  
-    // 제한 상태 조회
-    @Get('usage/limits')
-    @ApiOperation({ summary: '제한 상태 조회' })
-    @ApiResponse({ status: 200, description: '제한 상태 조회 성공' })
-    async getLimits(
-      @Req() req: RequestWithUser,
-    ) {
-      const userId = req.user.id;
-      return this.audioService.getLimits(userId);
     }
   }

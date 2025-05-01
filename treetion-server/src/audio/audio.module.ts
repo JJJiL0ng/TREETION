@@ -1,31 +1,39 @@
-// src/audio/audio.module.ts
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
-
+import { AudioController } from './audio.controller';
 import { AudioService } from './audio.service';
-// Controller 구현 후 주석 해제
-// import { AudioController } from './audio.controller';
+import { AudioEntity } from './entities/audio.entity';
+import { MulterModule } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
 
-import { AudioFile } from './entities/audio-file.entity';
-import { ChunkUpload } from './entities/chunk-upload.entity';
-import { UsageStats } from './entities/usage-stats.entity';
-import { Transcription } from './entities/transcription.entity';
-import { TranscriptionResult } from './entities/transcription-result.entity';
+// 업로드 디렉토리 확인 및 생성
+const uploadDir = join(process.cwd(), 'uploads/temp');
+if (!existsSync(uploadDir)) {
+  mkdirSync(uploadDir, { recursive: true });
+}
 
 @Module({
   imports: [
+    // Multer 설정
+    MulterModule.register({
+      storage: diskStorage({
+        destination: uploadDir,
+        filename: (req, file, cb) => {
+          // 파일명 처리는 컨트롤러에서 담당
+          cb(null, file.originalname);
+        },
+      }),
+    }),
+    // TypeORM 엔티티 등록
+    TypeOrmModule.forFeature([AudioEntity]),
+    // 환경 변수 사용을 위한 ConfigModule
     ConfigModule,
-    TypeOrmModule.forFeature([
-      AudioFile,
-      ChunkUpload,
-      UsageStats,
-      Transcription,
-      TranscriptionResult,
-    ]),
   ],
+  controllers: [AudioController],
   providers: [AudioService],
-  // controllers: [AudioController], // Controller 구현 후 주석 해제
   exports: [AudioService],
 })
 export class AudioModule {}
