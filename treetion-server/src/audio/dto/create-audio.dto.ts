@@ -3,8 +3,6 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, IsOptional, IsNumber, IsDateString, IsArray, IsUUID } from 'class-validator';
 
 export class CreateAudioDto {
-  // audioFile 필드 제거 - 파일은 FileInterceptor에 의해 처리됨
-
   @ApiProperty({ description: '오디오 제목', example: '수학 1강 - 미적분 기초' })
   @IsString()
   @IsNotEmpty()
@@ -14,4 +12,13 @@ export class CreateAudioDto {
   @IsDateString()
   @IsNotEmpty()
   recordedAt: string;
+  
+  @ApiProperty({ 
+    description: '오디오 언어 코드 (기본값: ko)', 
+    required: false,
+    example: 'ko' 
+  })
+  @IsOptional()
+  @IsString()
+  language?: string;
 }
