@@ -18,6 +18,8 @@ const RecordPage = () => {
   const [recordingTime, setRecordingTime] = useState(0);
   const [uploadStatus, setUploadStatus] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [draggedFileName, setDraggedFileName] = useState('');
   
   // API URL 설정
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
@@ -26,6 +28,7 @@ const RecordPage = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
   
   // 녹음 시간 업데이트
   useEffect(() => {
@@ -114,6 +117,7 @@ const RecordPage = () => {
         
         const audioBlob = new Blob(audioChunksRef.current, { type: actualMimeType });
         setAudioBlob(audioBlob);
+        setDraggedFileName('');
         
         // 스트림의 모든 트랙 중지
         stream.getTracks().forEach(track => track.stop());
@@ -138,6 +142,78 @@ const RecordPage = () => {
     }
   };
   
+  // 드래그 앤 드롭 이벤트 핸들러
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isRecording) {
+      setIsDragging(true);
+    }
+  };
+  
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isRecording) {
+      setIsDragging(true);
+    }
+  };
+  
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+  
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    if (isRecording) {
+      setUploadStatus('녹음 중에는 파일을 업로드할 수 없습니다. 먼저 녹음을 중지해주세요.');
+      return;
+    }
+    
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      
+      // 파일이 오디오 파일인지 확인
+      if (!file.type.startsWith('audio/')) {
+        setUploadStatus('오디오 파일만 업로드할 수 있습니다.');
+        return;
+      }
+      
+      console.log('드롭된 파일:', file.name, file.type, file.size);
+      setDraggedFileName(file.name);
+      
+      // Blob 설정
+      setAudioBlob(file);
+      setUploadStatus('');
+    }
+  };
+  
+  // 파일 입력을 통한 파일 선택 처리
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      
+      // 파일이 오디오 파일인지 확인
+      if (!file.type.startsWith('audio/')) {
+        setUploadStatus('오디오 파일만 업로드할 수 있습니다.');
+        e.target.value = '';
+        return;
+      }
+      
+      console.log('선택된 파일:', file.name, file.type, file.size);
+      setDraggedFileName(file.name);
+      
+      // Blob 설정
+      setAudioBlob(file);
+      setUploadStatus('');
+    }
+  };
+  
   // 서버에 오디오 업로드
   const uploadAudio = async () => {
     if (!audioBlob) {
@@ -159,7 +235,7 @@ const RecordPage = () => {
       
       // FormData 생성 및 파일 추가
       const formData = new FormData();
-      const fileName = `recording_${Date.now()}${fileExtension}`;
+      const fileName = draggedFileName || `recording_${Date.now()}${fileExtension}`;
       
       // 오디오 파일을 원본 형식 그대로 사용
       const audioFile = new File([audioBlob], fileName, { 
@@ -176,7 +252,7 @@ const RecordPage = () => {
       formData.append('audioFile', audioFile);
       
       // 메타데이터 추가 - CreateAudioDto에 맞게 필드 설정
-      formData.append('title', `녹음_${new Date().toISOString()}`);
+      formData.append('title', draggedFileName || `녹음_${new Date().toISOString()}`);
       formData.append('recordedAt', new Date().toISOString());
       
       // FormData 내용 로깅
@@ -199,6 +275,7 @@ const RecordPage = () => {
       
       // 업로드 후 상태 초기화
       setAudioBlob(null);
+      setDraggedFileName('');
       
     } catch (error: any) {
       console.error('업로드 오류:', error);
@@ -279,7 +356,7 @@ const RecordPage = () => {
                   className="w-full"
                 />
                 <p className="text-xs text-gray-500 mt-1 text-center">
-                  오디오 형식: {audioBlob.type || '알 수 없음'}
+                  {draggedFileName ? `파일명: ${draggedFileName}` : '녹음된 오디오'} | 형식: {audioBlob.type || '알 수 없음'}
                 </p>
               </div>
               <button 
@@ -301,6 +378,55 @@ const RecordPage = () => {
           )}
         </div>
         
+        {/* 드래그 앤 드롭 영역 */}
+        {!isRecording && (
+          <div className="mb-6">
+            <h2 className="text-xl font-semibold mb-3">오디오 파일 업로드</h2>
+            <div
+              ref={dropZoneRef}
+              onDragEnter={handleDragEnter}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed p-8 rounded-lg text-center transition-colors ${
+                isDragging 
+                  ? 'border-blue-500 bg-blue-50' 
+                  : 'border-gray-300 hover:border-gray-400'
+              }`}
+            >
+              <div className="mb-4">
+                <svg 
+                  className="mx-auto h-12 w-12 text-gray-400" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24" 
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    strokeWidth="2" 
+                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                  />
+                </svg>
+              </div>
+              <p className="text-lg mb-2">오디오 파일을 여기에 드래그하세요</p>
+              <p className="text-sm text-gray-500 mb-4">또는</p>
+              <label className="cursor-pointer px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors">
+                파일 선택
+                <input 
+                  type="file" 
+                  accept="audio/*" 
+                  className="hidden" 
+                  onChange={handleFileInputChange}
+                  disabled={isRecording || isUploading}
+                />
+              </label>
+              <p className="mt-2 text-xs text-gray-500">지원 형식: MP3, WAV, WebM 등 브라우저에서 지원하는 오디오 파일</p>
+            </div>
+          </div>
+        )}
+        
         {uploadStatus && (
           <div className={`p-4 rounded-lg mb-6 ${
             uploadStatus.includes('성공') ? 'bg-green-100 text-green-800' :
@@ -317,6 +443,7 @@ const RecordPage = () => {
             <li>녹음 시작 버튼을 클릭하여 오디오 녹음을 시작합니다.</li>
             <li>녹음 중지 버튼을 클릭하여 녹음을 종료합니다.</li>
             <li>녹음된 오디오를 확인하고 업로드 버튼을 클릭합니다.</li>
+            <li>또는, 기존 오디오 파일을 드래그하여 드롭존에 놓거나 파일 선택 버튼을 클릭하여 업로드할 수 있습니다.</li>
             <li>업로드 성공/실패 상태가 표시됩니다.</li>
           </ol>
         </div>
