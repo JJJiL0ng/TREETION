@@ -11,8 +11,11 @@ async function bootstrap() {
 
 
   // CORS 설정
-  app.enableCors();
-
+  app.enableCors({
+    origin: ['https://www.treetion.com', 'http://localhost:3000', 'https://treetion.com'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true,
+  });
   // 유효성 검사 파이프 설정
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
