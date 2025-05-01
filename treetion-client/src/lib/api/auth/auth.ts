@@ -1,6 +1,6 @@
 import axios, { AxiosError } from 'axios';
 import { User } from '@/types/auth';
-import apiClient from '../client';
+import apiClient from './client';
 
 // API 엔드포인트 기본 URL (환경 변수에서 가져옴)
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
