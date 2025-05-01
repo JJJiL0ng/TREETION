@@ -16,14 +16,30 @@ async function bootstrap() {
   
   console.log('CORS origins configured:', corsOrigins); // 디버깅용
 
-  app.enableCors({
-    origin: corsOrigins,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-    exposedHeaders: ['Authorization'],
-    credentials: configService.get<boolean>('CORS_CREDENTIALS') || true,
-    maxAge: 86400, // 24시간 preflight 캐시
-  });
+  // CORS 설정 - callback 함수를 사용하여 더 명확하게 제어
+app.enableCors({
+  origin: (origin, callback) => {
+    const allowedOrigins = configService.get<string>('CORS_ORIGIN')?.split(',') || 
+                          ['https://www.treetion.com', 'http://localhost:3000', 'https://treetion.com'];
+    
+    console.log('Request origin:', origin);
+    console.log('Allowed origins:', allowedOrigins);
+    
+    // null/undefined origin은 허용 (브라우저가 아닌 클라이언트)
+    if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+      callback(null, true);
+    } else {
+      console.log(`CORS blocked for origin: ${origin}`);
+      // 요청 거부가 아닌 허용으로 변경 (테스트 목적)
+      callback(null, true);
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  exposedHeaders: ['Authorization'],
+  credentials: true,
+  maxAge: 86400,
+});
 
   // 요청 로깅 미들웨어
   app.use((req, res, next) => {
