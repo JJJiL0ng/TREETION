@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "./button";
-import { Menu, TreesIcon } from "lucide-react";
+import { Menu } from "lucide-react";
 interface HeaderProps {
   toggleSidebar: () => void;
 }

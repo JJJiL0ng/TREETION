@@ -37,7 +37,7 @@ function RecordingItem({ title, duration, date, color }: RecordingItemProps) {
 
 export default function VoiceWritingPage() {
   const [isRecording, setIsRecording] = useState(false);
-  const [timer, setTimer] = useState("00:00:00");
+  // const [timer, setTimer] = useState("00:00:00");
 
   const toggleRecording = () => {
     setIsRecording(!isRecording);
@@ -93,7 +93,7 @@ export default function VoiceWritingPage() {
               </p>
 
               {/* 타이머 */}
-              <div className="text-3xl font-mono mb-8">{timer}</div>
+              <div className="text-3xl font-mono mb-8">1:00:00</div>
 
               {/* 녹음 컨트롤 버튼 */}
               <div className="flex gap-4">
