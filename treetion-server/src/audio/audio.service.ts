@@ -71,17 +71,16 @@ export class AudioService {
             // 3. 공개 URL 생성 (ConfigService에서 가져온 PUBLIC_URL 사용)
             const publicUrl = this.generatePublicUrl(fileKey);
 
-            // 4. STT 서비스를 통해 오디오 변환
+            // 4. STT 서비스를 통해 오디오 변환 - 청크 처리 지원
             let transcriptionResult: SttResult | null = null;
             try {
+                // 청크 업로드 지원 메서드 호출
                 transcriptionResult = await this.sttWhisperService.transcribeAudio(
                     file,
                     userId,
                     createAudioDto.language || 'ko'
                 );
-                if (transcriptionResult && transcriptionResult.text) {
-                    this.logger.log(`STT 변환 완료: ${transcriptionResult.text.substring(0, 50)}...`);
-                }
+                this.logger.log(`STT 변환 완료: ${transcriptionResult.text.substring(0, 50)}...`);
             } catch (sttError) {
                 this.logger.error(`STT 변환 실패, 오디오 저장은 계속 진행: ${sttError.message}`);
                 // STT 실패해도 오디오 저장은 계속 진행
@@ -105,7 +104,7 @@ export class AudioService {
             };
 
             const audioEntity = this.audioRepository.create(audioData);
-            const savedAudio = await this.audioRepository.save(audioEntity);
+            const savedAudio = await this.audioRepository.save(audioEntity) as AudioEntity;
             this.logger.log(`사용자 ${userId}의 오디오 메타데이터 저장 완료: ID ${savedAudio.id}`);
 
             // 6. 임시 파일 삭제
@@ -114,6 +113,7 @@ export class AudioService {
 
             // 7. 응답 DTO 형식으로 변환하여 반환
             return this.mapToResponseDto(savedAudio);
+
 
         } catch (error) {
             this.logger.error(`오디오 업로드 중 오류 발생: ${error.message}`, error.stack);
@@ -203,11 +203,6 @@ export class AudioService {
      * @returns AudioResponseDto 객체
      */
     private mapToResponseDto(entity: AudioEntity): AudioResponseDto {
-        if (Array.isArray(entity)) {
-            this.logger.warn('mapToResponseDto에 배열이 전달되었습니다. 첫 번째 항목만 사용합니다.');
-            entity = entity[0];
-        }
-
         const responseDto = new AudioResponseDto();
         responseDto.id = entity.id;
         responseDto.title = entity.title;
