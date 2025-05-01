@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { SttWhisperService } from './stt-whisper.service';
-import { SttWhisperController } from './stt-whisper.controller';
 
 @Module({
-  controllers: [SttWhisperController],
+  imports: [ConfigModule],
   providers: [SttWhisperService],
+  exports: [SttWhisperService],
 })
 export class SttWhisperModule {}
