@@ -101,7 +101,7 @@ export class SttWhisperService {
       
       // 추가 옵션 설정
       formData.append('temperature', '0');
-      formData.append('timestamp_granularities[]', 'segment');
+      formData.append('timestamp_granularities[]', 'word');
       
       this.logger.log('Whisper API 호출 시작...');
       
