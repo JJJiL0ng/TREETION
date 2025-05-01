@@ -10,11 +10,26 @@ async function bootstrap() {
   });
   const configService = app.get(ConfigService);
 
-  // 간단한 CORS 설정
+  // CORS 설정
+  const corsOrigins = configService.get<string>('CORS_ORIGIN')?.split(',') || 
+                     ['https://www.treetion.com', 'http://localhost:3000', 'https://treetion.com'];
+  
+  console.log('CORS origins configured:', corsOrigins); // 디버깅용
+
   app.enableCors({
-    origin: '*', // 모든 출처 허용 (테스트용)
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    credentials: true,
+    origin: corsOrigins,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    exposedHeaders: ['Authorization'],
+    credentials: configService.get<boolean>('CORS_CREDENTIALS') || true,
+    maxAge: 86400, // 24시간 preflight 캐시
+  });
+
+  // 요청 로깅 미들웨어
+  app.use((req, res, next) => {
+    console.log(`${req.method} ${req.url}`);
+    console.log('Origin:', req.headers.origin);
+    next();
   });
 
   // 유효성 검사 파이프 설정
@@ -40,6 +55,8 @@ async function bootstrap() {
   // 서버 시작
   const port = configService.get<number>('PORT') || 8080;
   await app.listen(port);
-  console.log(`Application is running on port ${port}`);
+
+  console.log(`Application is running on: http://localhost:${port}`);
+  console.log(`Environment: ${configService.get<string>('NODE_ENV') || 'development'}`);
 }
 bootstrap();

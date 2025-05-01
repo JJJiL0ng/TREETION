@@ -1,5 +1,8 @@
 {
     "scripts": {
         "heroku-postbuild": "cd treetion-server && npm install && npm run build"
+    },
+    "dependencies": {
+        "jwt-decode": "^4.0.0"
     }
 }

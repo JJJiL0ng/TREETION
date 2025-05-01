@@ -8,7 +8,7 @@ dotenv.config();
 export default registerAs('app', () => ({
   // 앱 일반 설정
   name: process.env.APP_NAME || 'Treetion',
-  port: parseInt(process.env.PORT || '3000', 10),
+  port: parseInt(process.env.PORT || '8080', 10),
   env: process.env.NODE_ENV || 'development',
   
   // 업로드 설정
