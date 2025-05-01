@@ -19,7 +19,7 @@ export default function AuthLayout({
         <div className="max-w-md">
           <div className="mb-8">
             <Image
-              src="/logo.svg"
+              src="/logo.png"
               alt="트리션 로고"
               width={180}
               height={60}
@@ -41,7 +41,7 @@ export default function AuthLayout({
         <div className="max-w-md w-full">
           <div className="mb-6 text-center lg:hidden">
             <Image
-              src="/logo.svg"
+              src="/logo.png"
               alt="트리션 로고"
               width={140}
               height={45}
