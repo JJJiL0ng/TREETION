@@ -30,4 +30,19 @@ export class AudioEntity {
   @ManyToOne(() => User, { eager: true })
   @JoinColumn({ name: 'userId' })
   user: User;
+  
+  @Column({ nullable: true })
+  transcriptionText: string;
+
+  @Column({ nullable: true })
+  transcriptionKey: string;
+
+  @Column({ nullable: true })
+  transcriptionUrl: string;
+
+  @Column({ type: 'float', nullable: true })
+  duration: number;
+
+  @Column({ nullable: true })
+  language: string;
 }

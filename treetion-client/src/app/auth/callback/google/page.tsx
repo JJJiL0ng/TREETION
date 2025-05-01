@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUserStore } from '@/store/user-store';
 import axios, { AxiosError } from 'axios';
+import { saveTokens, saveUser } from '@/lib/api/auth/token';
 
 export default function GoogleCallbackPage() {
   const router = useRouter();
@@ -21,12 +22,21 @@ export default function GoogleCallbackPage() {
         // URL에서 코드 매개변수 가져오기
         const urlParams = new URLSearchParams(window.location.search);
         const code = urlParams.get('code');
+        const state = urlParams.get('state');
+        
+        // CSRF 공격 방지를 위한 상태 검증
+        const savedState = sessionStorage.getItem('oauth_state');
+        if (state && savedState && state !== savedState) {
+          throw new Error('보안 상태 불일치. 요청이 변조되었을 수 있습니다.');
+        }
+        // 상태 검증 후 저장된 상태 제거
+        sessionStorage.removeItem('oauth_state');
         
         console.log('인증 코드:', code?.substring(0, 10) + '...');
         setDebugInfo('인증 코드 확인됨');
         
         if (!code) {
-          // throw new Error('인증 코드가 제공되지 않았습니다.');메
+          throw new Error('인증 코드가 제공되지 않았습니다.');
         }
         
         // 리다이렉트 URI 설정
@@ -65,7 +75,11 @@ export default function GoogleCallbackPage() {
           throw new Error('인증 토큰이 반환되지 않았습니다.');
         }
         
-        // 토큰 저장
+        // 인증 유틸리티를 사용하여 토큰과 사용자 정보 저장
+        saveTokens(accessToken, refreshToken);
+        saveUser(user);
+        
+        // 기존 방식도 유지 (하위 호환성)
         localStorage.setItem('token', accessToken);
         localStorage.setItem('refreshToken', refreshToken);
         
@@ -75,8 +89,8 @@ export default function GoogleCallbackPage() {
           refreshToken: localStorage.getItem('refreshToken') ? '저장됨' : '저장 실패'
         });
         
-        // 사용자 정보 저장
-        setUser(user);
+        // Zustand 스토어에 사용자 정보 설정
+        setUser(user, accessToken);
         
         setDebugInfo('대시보드로 이동 중...');
         

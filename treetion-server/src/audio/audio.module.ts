@@ -8,6 +8,7 @@ import { MulterModule } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { SttWhisperModule } from '../stt-whisper/stt-whisper.module';
 
 // 업로드 디렉토리 확인 및 생성
 const uploadDir = join(process.cwd(), 'uploads/temp');
@@ -31,9 +32,10 @@ if (!existsSync(uploadDir)) {
     TypeOrmModule.forFeature([AudioEntity]),
     // 환경 변수 사용을 위한 ConfigModule
     ConfigModule,
+    SttWhisperModule
   ],
   controllers: [AudioController],
   providers: [AudioService],
-  exports: [AudioService],
+  exports: [AudioService, SttWhisperModule],
 })
 export class AudioModule {}

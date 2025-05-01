@@ -1,19 +1,25 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import axios from 'axios';
-import { useUserStore } from '@/store/user-store';
-import { refreshToken } from '@/lib/api/auth/auth';
 import { useRouter } from 'next/navigation';
-import { jwtDecode } from 'jwt-decode';
+import { api } from '@/lib/api/auth/client';
+import { useUserStore } from '@/store/user-store';
+import { useRequiredAuth } from '@/hooks/auth/useRequiredAuth';
+import { AuthGuard } from '@/components/auth/AuthGuard';
 
 const RecordPage = () => {
+  // 인증 관련 훅 사용
+  const { user, isLoading: authLoading } = useRequiredAuth('/auth/login');
+  const router = useRouter();
+  
   // 상태 관리
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [recordingTime, setRecordingTime] = useState(0);
   const [uploadStatus, setUploadStatus] = useState('');
-  const router = useRouter();
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [draggedFileName, setDraggedFileName] = useState('');
   
   // API URL 설정
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
@@ -22,33 +28,7 @@ const RecordPage = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  
-  // 토큰 확인
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      setUploadStatus('인증 정보가 없습니다. 로그인이 필요합니다.');
-    } else {
-      try {
-        // 토큰 디코딩하여 만료 여부 확인
-        const decoded = jwtDecode(token);
-        const currentTime = Date.now() / 1000;
-        
-        if (decoded.exp && decoded.exp < currentTime) {
-          // 토큰이 만료된 경우
-          setUploadStatus('인증 토큰이 만료되었습니다. 갱신 중...');
-          refreshToken()
-            .then(() => setUploadStatus(''))
-            .catch(() => {
-              setUploadStatus('토큰 갱신에 실패했습니다. 다시 로그인하세요.');
-              setTimeout(() => router.push('/auth/login'), 3000);
-            });
-        }
-      } catch (error) {
-        console.error('토큰 검증 오류:', error);
-      }
-    }
-  }, [router]);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
   
   // 녹음 시간 업데이트
   useEffect(() => {
@@ -102,12 +82,6 @@ const RecordPage = () => {
 
   // 녹음 시작
   const startRecording = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      setUploadStatus('인증 정보가 없습니다. 로그인이 필요합니다.');
-      return;
-    }
-    
     try {
       // 오디오 스트림 가져오기
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -143,6 +117,7 @@ const RecordPage = () => {
         
         const audioBlob = new Blob(audioChunksRef.current, { type: actualMimeType });
         setAudioBlob(audioBlob);
+        setDraggedFileName('');
         
         // 스트림의 모든 트랙 중지
         stream.getTracks().forEach(track => track.stop());
@@ -167,40 +142,87 @@ const RecordPage = () => {
     }
   };
   
-  // 토큰 새로고침 및 재시도 함수
-  const refreshTokenAndRetry = async (callback: () => Promise<any>) => {
-    try {
-      // 토큰 새로고침 시도
-      await refreshToken();
-      // 새로운 토큰으로 재시도
-      return await callback();
-    } catch (refreshError) {
-      console.error('토큰 갱신 오류:', refreshError);
-      setUploadStatus('세션이 만료되었습니다. 다시 로그인해주세요.');
-      // 로그아웃 처리
-      useUserStore.getState().logout();
-      // 3초 후 로그인 페이지로 리다이렉트
-      setTimeout(() => {
-        router.push('/auth/login');
-      }, 3000);
-      throw refreshError;
+  // 드래그 앤 드롭 이벤트 핸들러
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isRecording) {
+      setIsDragging(true);
+    }
+  };
+  
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isRecording) {
+      setIsDragging(true);
+    }
+  };
+  
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+  
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    if (isRecording) {
+      setUploadStatus('녹음 중에는 파일을 업로드할 수 없습니다. 먼저 녹음을 중지해주세요.');
+      return;
+    }
+    
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      
+      // 파일이 오디오 파일인지 확인
+      if (!file.type.startsWith('audio/')) {
+        setUploadStatus('오디오 파일만 업로드할 수 있습니다.');
+        return;
+      }
+      
+      console.log('드롭된 파일:', file.name, file.type, file.size);
+      setDraggedFileName(file.name);
+      
+      // Blob 설정
+      setAudioBlob(file);
+      setUploadStatus('');
+    }
+  };
+  
+  // 파일 입력을 통한 파일 선택 처리
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      
+      // 파일이 오디오 파일인지 확인
+      if (!file.type.startsWith('audio/')) {
+        setUploadStatus('오디오 파일만 업로드할 수 있습니다.');
+        e.target.value = '';
+        return;
+      }
+      
+      console.log('선택된 파일:', file.name, file.type, file.size);
+      setDraggedFileName(file.name);
+      
+      // Blob 설정
+      setAudioBlob(file);
+      setUploadStatus('');
     }
   };
   
   // 서버에 오디오 업로드
   const uploadAudio = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      setUploadStatus('인증 정보가 없습니다. 로그인이 필요합니다.');
-      return;
-    }
-    
     if (!audioBlob) {
       setUploadStatus('업로드할 오디오가 없습니다.');
       return;
     }
     
     try {
+      setIsUploading(true);
       setUploadStatus('업로드 중...');
       
       // 파일 확장자 결정
@@ -213,7 +235,7 @@ const RecordPage = () => {
       
       // FormData 생성 및 파일 추가
       const formData = new FormData();
-      const fileName = `recording_${Date.now()}${fileExtension}`;
+      const fileName = draggedFileName || `recording_${Date.now()}${fileExtension}`;
       
       // 오디오 파일을 원본 형식 그대로 사용
       const audioFile = new File([audioBlob], fileName, { 
@@ -230,7 +252,7 @@ const RecordPage = () => {
       formData.append('audioFile', audioFile);
       
       // 메타데이터 추가 - CreateAudioDto에 맞게 필드 설정
-      formData.append('title', `녹음_${new Date().toISOString()}`);
+      formData.append('title', draggedFileName || `녹음_${new Date().toISOString()}`);
       formData.append('recordedAt', new Date().toISOString());
       
       // FormData 내용 로깅
@@ -244,153 +266,189 @@ const RecordPage = () => {
         }
       }
       
-      // JWT에서 사용자 정보 디코딩
-      let userId = '';
-      try {
-        const decodedToken = jwtDecode<{sub: string}>(token);
-        userId = decodedToken.sub; // JWT 표준은 'sub' 필드에 사용자 ID를 저장
-        console.log('디코딩된 사용자 ID:', userId);
-      } catch (error) {
-        console.error('토큰 디코딩 오류:', error);
-        throw new Error('인증 토큰이 올바르지 않습니다.');
-      }
+      // 인증을 처리하는 API 클라이언트를 사용하여 업로드
+      console.log('API 엔드포인트:', `${API_URL}/audio/upload`);
+      const response = await api.upload('/audio/upload', formData);
       
-      // 업로드 함수 정의 - Content-Type 헤더를 설정하지 않음 (브라우저가 자동 설정)
-      const performUpload = async () => {
-        console.log('API 엔드포인트:', `${API_URL}/audio/upload`);
-        return await axios.post(
-          `${API_URL}/audio/upload`, 
-          formData, 
-          { 
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Accept': 'application/json',
-              // Content-Type은 브라우저가 자동으로 설정
-            }
-          }
-        );
-      };
-      
-      // 서버에 업로드 시도
-      let response;
-      try {
-        console.log('오디오 업로드 요청 시작...');
-        response = await performUpload();
-        console.log('업로드 성공!');
-      } catch (error) {
-        console.error('업로드 첫 시도 실패:', error);
-        
-        // 요청 상세 정보 로깅
-        if (axios.isAxiosError(error) && error.response) {
-          console.error('오류 응답:', {
-            status: error.response.status,
-            statusText: error.response.statusText,
-            data: error.response.data,
-            headers: error.response.headers
-          });
-        }
-        
-        // 401 오류인 경우 토큰 갱신 후 재시도
-        if (axios.isAxiosError(error) && error.response?.status === 401) {
-          response = await refreshTokenAndRetry(performUpload);
-        } else {
-          throw error;
-        }
-      }
-      
-      console.log('업로드 응답:', response.data);
-      setUploadStatus('업로드 성공! 오디오 ID: ' + response.data.id);
+      console.log('업로드 응답:', response);
+      setUploadStatus('업로드 성공! 오디오 ID: ' + response.id);
       
       // 업로드 후 상태 초기화
       setAudioBlob(null);
+      setDraggedFileName('');
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('업로드 오류:', error);
       
-      // 오류 상태 코드 및 메시지 확인
-      if (axios.isAxiosError(error)) {
-        const statusCode = error.response?.status;
-        const errorMessage = error.response?.data?.message || error.message;
+      // API 클라이언트가 이미 토큰 갱신을 처리하므로 여기서는 오류 메시지만 표시
+      const errorMessage = error.response?.data?.message || error.message || '알 수 없는 오류';
+      setUploadStatus(`업로드 실패: ${errorMessage}`);
+      
+      // 권한 오류인 경우 (401)
+      if (error.response?.status === 401) {
+        setUploadStatus('인증이 필요합니다. 다시 로그인해주세요.');
         
-        if (statusCode === 401) {
-          setUploadStatus('인증 오류: 토큰이 유효하지 않거나 만료되었습니다.');
-        } else {
-          setUploadStatus(`업로드 실패 (${statusCode}): ${errorMessage}`);
-        }
-      } else {
-        setUploadStatus(`업로드 실패: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
+        // 로그아웃 처리 및 로그인 페이지로 리다이렉트
+        useUserStore.getState().logout();
+        setTimeout(() => {
+          router.push('/auth/login');
+        }, 3000);
       }
+    } finally {
+      setIsUploading(false);
     }
   };
   
-  return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">오디오 녹음 및 업로드</h1>
-      
-      <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-        <p>녹음 상태: {isRecording ? '녹음 중' : '중지됨'}</p>
-        {isRecording && <p className="text-red-500 font-semibold">녹음 시간: {formatTime(recordingTime)}</p>}
+  // 인증 로딩 중일 때 표시할 내용
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[300px]">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">로그인 확인 중...</p>
+        </div>
       </div>
-      
-      <div className="mb-6 flex flex-col items-center">
-        {!isRecording ? (
-          <button 
-            onClick={startRecording}
-            className="mb-4 px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-          >
-            녹음 시작
-          </button>
-        ) : (
-          <button 
-            onClick={stopRecording}
-            className="mb-4 px-6 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-          >
-            녹음 중지
-          </button>
-        )}
+    );
+  }
+  
+  return (
+    <AuthGuard>
+      <div className="p-6 max-w-3xl mx-auto">
+        <h1 className="text-2xl font-bold mb-6">오디오 녹음 및 업로드</h1>
         
-        {audioBlob && !isRecording && (
-          <div className="w-full flex flex-col items-center">
-            <div className="mb-4 w-full">
-              <audio 
-                controls 
-                src={URL.createObjectURL(audioBlob)} 
-                className="w-full"
-              />
-              <p className="text-xs text-gray-500 mt-1 text-center">
-                오디오 형식: {audioBlob.type || '알 수 없음'}
-              </p>
-            </div>
-            <button 
-              onClick={uploadAudio}
-              className="px-6 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-            >
-              업로드
-            </button>
+        {user && (
+          <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
+            <p className="text-sm text-blue-700">
+              <span className="font-medium">{user.name || user.email}</span>님으로 로그인됨
+            </p>
           </div>
         )}
-      </div>
-      
-      {uploadStatus && (
-        <div className={`p-4 rounded-lg mb-6 ${
-          uploadStatus.includes('성공') ? 'bg-green-100 text-green-800' :
-          uploadStatus.includes('오류') || uploadStatus.includes('실패') ? 'bg-red-100 text-red-800' :
-          'bg-blue-100 text-blue-800'
-        }`}>
-          <p>{uploadStatus}</p>
+        
+        <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+          <p>녹음 상태: {isRecording ? '녹음 중' : '중지됨'}</p>
+          {isRecording && <p className="text-red-500 font-semibold">녹음 시간: {formatTime(recordingTime)}</p>}
         </div>
-      )}
-      
-      <div className="border-t pt-4">
-        <h2 className="text-xl font-semibold mb-2">사용 방법:</h2>
-        <ol className="list-decimal pl-6 space-y-2">
-          <li>녹음 시작 버튼을 클릭하여 오디오 녹음을 시작합니다.</li>
-          <li>녹음 중지 버튼을 클릭하여 녹음을 종료합니다.</li>
-          <li>녹음된 오디오를 확인하고 업로드 버튼을 클릭합니다.</li>
-          <li>업로드 성공/실패 상태가 표시됩니다.</li>
-        </ol>
+        
+        <div className="mb-6 flex flex-col items-center">
+          {!isRecording ? (
+            <button 
+              onClick={startRecording}
+              className="mb-4 px-6 py-2 text-2xl bg-primary text-blue-500 rounded hover:bg-primary-dark transition-colors"
+              disabled={isUploading}
+            >
+              녹음 시작
+            </button>
+          ) : (
+            <button 
+              onClick={stopRecording}
+              className="mb-4 px-6 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+            >
+              녹음 중지
+            </button>
+          )}
+          
+          {audioBlob && !isRecording && (
+            <div className="w-full flex flex-col items-center">
+              <div className="mb-4 w-full">
+                <audio 
+                  controls 
+                  src={URL.createObjectURL(audioBlob)} 
+                  className="w-full"
+                />
+                <p className="text-xs text-gray-500 mt-1 text-center">
+                  {draggedFileName ? `파일명: ${draggedFileName}` : '녹음된 오디오'} | 형식: {audioBlob.type || '알 수 없음'}
+                </p>
+              </div>
+              <button 
+                onClick={uploadAudio}
+                disabled={isUploading}
+                className="px-6 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                {isUploading ? (
+                  <span className="flex items-center">
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    업로드 중...
+                  </span>
+                ) : '업로드'}
+              </button>
+            </div>
+          )}
+        </div>
+        
+        {/* 드래그 앤 드롭 영역 */}
+        {!isRecording && (
+          <div className="mb-6">
+            <h2 className="text-xl font-semibold mb-3">오디오 파일 업로드</h2>
+            <div
+              ref={dropZoneRef}
+              onDragEnter={handleDragEnter}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed p-8 rounded-lg text-center transition-colors ${
+                isDragging 
+                  ? 'border-blue-500 bg-blue-50' 
+                  : 'border-gray-300 hover:border-gray-400'
+              }`}
+            >
+              <div className="mb-4">
+                <svg 
+                  className="mx-auto h-12 w-12 text-gray-400" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24" 
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    strokeWidth="2" 
+                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                  />
+                </svg>
+              </div>
+              <p className="text-lg mb-2">오디오 파일을 여기에 드래그하세요</p>
+              <p className="text-sm text-gray-500 mb-4">또는</p>
+              <label className="cursor-pointer px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors">
+                파일 선택
+                <input 
+                  type="file" 
+                  accept="audio/*" 
+                  className="hidden" 
+                  onChange={handleFileInputChange}
+                  disabled={isRecording || isUploading}
+                />
+              </label>
+              <p className="mt-2 text-xs text-gray-500">지원 형식: MP3, WAV, WebM 등 브라우저에서 지원하는 오디오 파일</p>
+            </div>
+          </div>
+        )}
+        
+        {uploadStatus && (
+          <div className={`p-4 rounded-lg mb-6 ${
+            uploadStatus.includes('성공') ? 'bg-green-100 text-green-800' :
+            uploadStatus.includes('오류') || uploadStatus.includes('실패') ? 'bg-red-100 text-red-800' :
+            'bg-blue-100 text-blue-800'
+          }`}>
+            <p>{uploadStatus}</p>
+          </div>
+        )}
+        
+        <div className="border-t pt-4">
+          <h2 className="text-xl font-semibold mb-2">사용 방법:</h2>
+          <ol className="list-decimal pl-6 space-y-2">
+            <li>녹음 시작 버튼을 클릭하여 오디오 녹음을 시작합니다.</li>
+            <li>녹음 중지 버튼을 클릭하여 녹음을 종료합니다.</li>
+            <li>녹음된 오디오를 확인하고 업로드 버튼을 클릭합니다.</li>
+            <li>또는, 기존 오디오 파일을 드래그하여 드롭존에 놓거나 파일 선택 버튼을 클릭하여 업로드할 수 있습니다.</li>
+            <li>업로드 성공/실패 상태가 표시됩니다.</li>
+          </ol>
+        </div>
       </div>
-    </div>
+    </AuthGuard>
   );
 };
 
