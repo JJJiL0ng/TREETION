@@ -42,11 +42,21 @@ import apiConfig from './config/api.config';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
         const dbOptions = configService.get('database');
+        
+        // 설정 로깅
+        console.log('Database connection config:', {
+          type: dbOptions.type,
+          host: dbOptions.host,
+          port: dbOptions.port,
+          username: dbOptions.username,
+          database: dbOptions.database,
+          ssl: dbOptions.ssl || false,
+        });
+        
+        // 항상 SSL 활성화 (특히 Supabase에서 필요)
         return {
           ...dbOptions,
-          ssl: process.env.NODE_ENV === 'production' ? {
-            rejectUnauthorized: false,
-          } : false,
+          ssl: true, // 단순화된 SSL 설정
         };
       },
     }),
@@ -97,4 +107,13 @@ import apiConfig from './config/api.config';
     },
   ],
 })
-export class AppModule {}
+export class AppModule {
+  constructor(private configService: ConfigService) {
+    // 시작 시 환경 설정 로깅
+    console.log('Application starting with environment:', process.env.NODE_ENV || 'development');
+    console.log('DB_HOST:', process.env.DB_HOST);
+    console.log('DB_PORT:', process.env.DB_PORT);
+    console.log('DB_DATABASE:', process.env.DB_DATABASE);
+    console.log('DB_USERNAME:', process.env.DB_USERNAME);
+  }
+}

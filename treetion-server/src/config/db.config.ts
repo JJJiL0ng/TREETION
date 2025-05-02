@@ -8,6 +8,13 @@ config({ path: `.env.${process.env.NODE_ENV || 'development'}` });
 
 // 데이터베이스 설정을 함수로 등록
 export default registerAs('database', (): TypeOrmModuleOptions => {
+  console.log('DATABASE CONFIG LOADED');
+  console.log('DB_HOST:', process.env.DB_HOST);
+  console.log('DB_PORT:', process.env.DB_PORT);
+  console.log('DB_DATABASE:', process.env.DB_DATABASE);
+  console.log('DB_USERNAME:', process.env.DB_USERNAME);
+  console.log('NODE_ENV:', process.env.NODE_ENV);
+  
   return {
     type: 'postgres',
     host: process.env.DB_HOST || 'localhost',
@@ -17,9 +24,7 @@ export default registerAs('database', (): TypeOrmModuleOptions => {
     database: process.env.DB_DATABASE || 'default_database',
     entities: ['dist/**/*.entity{.ts,.js}'],
     synchronize: process.env.NODE_ENV !== 'production',
-    ssl: {
-      rejectUnauthorized: false, // 자체 서명된 인증서 허용
-    },
+    ssl: true, // 간단하게 true로 설정
     // connectTimeout: 30000,
     retryAttempts: 5,
     retryDelay: 3000,
@@ -38,9 +43,7 @@ export const dbConfig: TypeOrmModuleOptions = {
   database: process.env.DB_DATABASE || 'default_database',
   entities: ['dist/**/*.entity{.ts,.js}'],
   synchronize: process.env.NODE_ENV !== 'production',
-  ssl: {
-    rejectUnauthorized: false
-  },
+  ssl: true, // 간단하게 true로 설정
   // connectTimeout: 30000,
   retryAttempts: 5,
   retryDelay: 3000,
