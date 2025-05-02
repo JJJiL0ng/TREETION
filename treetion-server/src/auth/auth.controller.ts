@@ -89,8 +89,13 @@ export class AuthController {
     // 필요하다면 서버 측에서도 토큰 블랙리스트 처리 등을 구현할 수 있습니다.
     return { message: 'Successfully logged out' };
   }
+
   @Options('code')
+  @HttpCode(HttpStatus.OK)
   handlePreflight() {
-    return {}; // NestJS가 자동으로 적절한 CORS 헤더를 추가
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'Preflight OK'
+    };
   }
 }
