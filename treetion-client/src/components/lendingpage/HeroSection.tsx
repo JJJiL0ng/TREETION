@@ -18,7 +18,7 @@ export default function HeroSection(): JSX.Element {
             </p>
             
             <div className="flex flex-col sm:flex-row gap-4">
-              <Link href="/comingsoon" className="cta-button text-center flex items-center justify-center">
+              <Link href="/auth/login" className="cta-button text-center flex items-center justify-center">
                 지금 무료로 시작하기
               </Link>
               <Link href="/comingsoon" className="bg-white border-2 border-[#005DE9] text-[#005DE9] font-semibold py-4 px-8 rounded-full hover:bg-blue-50 transition-colors text-center flex items-center justify-center">
