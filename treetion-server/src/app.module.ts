@@ -53,10 +53,12 @@ import apiConfig from './config/api.config';
           ssl: dbOptions.ssl || false,
         });
         
-        // 항상 SSL 활성화 (특히 Supabase에서 필요)
+        // 자체 서명된 인증서를 허용하는 SSL 설정
         return {
           ...dbOptions,
-          ssl: true, // 단순화된 SSL 설정
+          ssl: {
+            rejectUnauthorized: false, // 자체 서명된 인증서 허용
+          },
         };
       },
     }),

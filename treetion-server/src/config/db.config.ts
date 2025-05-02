@@ -24,7 +24,7 @@ export default registerAs('database', (): TypeOrmModuleOptions => {
     database: process.env.DB_DATABASE || 'default_database',
     entities: ['dist/**/*.entity{.ts,.js}'],
     synchronize: process.env.NODE_ENV !== 'production',
-    ssl: true, // 간단하게 true로 설정
+    ssl: false, // 간단하게 true로 설정
     // connectTimeout: 30000,
     retryAttempts: 5,
     retryDelay: 3000,
@@ -43,7 +43,7 @@ export const dbConfig: TypeOrmModuleOptions = {
   database: process.env.DB_DATABASE || 'default_database',
   entities: ['dist/**/*.entity{.ts,.js}'],
   synchronize: process.env.NODE_ENV !== 'production',
-  ssl: true, // 간단하게 true로 설정
+  ssl: false, 
   // connectTimeout: 30000,
   retryAttempts: 5,
   retryDelay: 3000,
