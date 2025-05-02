@@ -39,7 +39,7 @@ export const dbConfig: TypeOrmModuleOptions = {
   entities: ['dist/**/*.entity{.ts,.js}'],
   synchronize: process.env.NODE_ENV !== 'production',
   ssl: {
-    rejectUnauthorized: true
+    rejectUnauthorized: false
   },
   // connectTimeout: 30000,
   retryAttempts: 5,
