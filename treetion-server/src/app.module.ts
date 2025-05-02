@@ -1,4 +1,3 @@
-// src/app.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -45,9 +44,9 @@ import apiConfig from './config/api.config';
         const dbOptions = configService.get('database');
         return {
           ...dbOptions,
-          ssl: {
+          ssl: process.env.NODE_ENV === 'production' ? {
             rejectUnauthorized: false,
-          },
+          } : false,
         };
       },
     }),
