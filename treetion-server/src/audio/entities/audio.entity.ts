@@ -1,3 +1,4 @@
+// src/audio/entities/audio.entity.ts
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 
@@ -30,7 +31,8 @@ export class AudioEntity {
   @ManyToOne(() => User, { eager: true })
   @JoinColumn({ name: 'userId' })
   user: User;
-  
+
+  // 기존 STT 필드
   @Column({ nullable: true })
   transcriptionText: string;
 
@@ -45,4 +47,24 @@ export class AudioEntity {
 
   @Column({ nullable: true })
   language: string;
+
+  // 업그레이드된 STT 필드
+  @Column({ nullable: true, type: 'text' })
+  upgradedText: string;
+
+  @Column({ nullable: true })
+  upgradedTextKey: string;
+
+  @Column({ nullable: true })
+  upgradedTextUrl: string;
+
+  @Column({ type: 'boolean', default: false })
+  isUpgraded: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  upgradedAt: Date;
+
+  // 원본 파일명 (청크 관리 및 파일명 생성 시 사용)
+  @Column({ nullable: true })
+  originalFilename: string;
 }
