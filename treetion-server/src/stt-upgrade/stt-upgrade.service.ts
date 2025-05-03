@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -18,10 +18,10 @@ export class SttUpgradeService {
   private readonly unlinkAsync = promisify(fs.unlink);
   private readonly s3Client: S3;
   private readonly TEMP_DIR = path.join(process.cwd(), 'temp', 'stt-upgrade');
-  private readonly PROMPTS_DIR = path.join(process.cwd(), 'src', 'stt-upgrade', 'prompts');
   
   // 텍스트 분할 설정
   private readonly MAX_CHUNK_SIZE = 1500; // 최대 청크 크기 (공백 포함 문자 수)
+  private readonly PROMPT_PATH = path.join(process.cwd(), 'src', 'stt-upgrade', 'prompts', 'stt-upgrade-prompt.txt');
 
   constructor(
     @InjectRepository(AudioEntity)
@@ -53,14 +53,14 @@ export class SttUpgradeService {
       this.logger.log(`임시 디렉토리 확인: ${this.TEMP_DIR}`);
       
       // 프롬프트 디렉토리 생성
-      await this.mkdirAsync(this.PROMPTS_DIR, { recursive: true });
-      this.logger.log(`프롬프트 디렉토리 확인: ${this.PROMPTS_DIR}`);
+      const promptDir = path.dirname(this.PROMPT_PATH);
+      await this.mkdirAsync(promptDir, { recursive: true });
+      this.logger.log(`프롬프트 디렉토리 확인: ${promptDir}`);
       
       // 기본 프롬프트 파일이 없으면 생성
-      const defaultPromptPath = path.join(this.PROMPTS_DIR, 'default-prompt.txt');
-      if (!fs.existsSync(defaultPromptPath)) {
-        await this.writeFileAsync(defaultPromptPath, this.getDefaultPromptTemplate());
-        this.logger.log(`기본 프롬프트 파일 생성: ${defaultPromptPath}`);
+      if (!fs.existsSync(this.PROMPT_PATH)) {
+        await this.writeFileAsync(this.PROMPT_PATH, this.getDefaultPromptTemplate());
+        this.logger.log(`기본 프롬프트 파일 생성: ${this.PROMPT_PATH}`);
       }
     } catch (error) {
       this.logger.error(`디렉토리 생성 실패: ${error.message}`, error.stack);
@@ -68,100 +68,33 @@ export class SttUpgradeService {
   }
 
   /**
-   * 사용 가능한 프롬프트 템플릿 목록을 반환합니다.
-   */
-  async getAvailablePromptTemplates(): Promise<string[]> {
-    try {
-      const files = await fs.promises.readdir(this.PROMPTS_DIR);
-      return files.filter(file => file.endsWith('.txt'));
-    } catch (error) {
-      this.logger.error(`프롬프트 템플릿 목록 조회 실패: ${error.message}`, error.stack);
-      return ['default-prompt.txt'];
-    }
-  }
-
-  /**
-   * 지정된 프롬프트 템플릿의 내용을 반환합니다.
-   */
-  async getPromptTemplate(templateName: string = 'default-prompt.txt'): Promise<string> {
-    try {
-      const templatePath = path.join(this.PROMPTS_DIR, templateName);
-      if (!fs.existsSync(templatePath)) {
-        throw new Error(`프롬프트 템플릿을 찾을 수 없습니다: ${templateName}`);
-      }
-      
-      return await this.readFileAsync(templatePath, 'utf-8');
-    } catch (error) {
-      this.logger.error(`프롬프트 템플릿 읽기 실패: ${error.message}`, error.stack);
-      return this.getDefaultPromptTemplate();
-    }
-  }
-
-  /**
-   * 새 프롬프트 템플릿을 저장합니다.
-   */
-  async savePromptTemplate(templateName: string, content: string): Promise<string> {
-    try {
-      // 파일명에 .txt 확장자가 없으면 추가
-      const fileName = templateName.endsWith('.txt') ? templateName : `${templateName}.txt`;
-      const templatePath = path.join(this.PROMPTS_DIR, fileName);
-      
-      await this.writeFileAsync(templatePath, content);
-      this.logger.log(`프롬프트 템플릿 저장 완료: ${templatePath}`);
-      
-      return fileName;
-    } catch (error) {
-      this.logger.error(`프롬프트 템플릿 저장 실패: ${error.message}`, error.stack);
-      throw error;
-    }
-  }
-
-  /**
-   * STT 텍스트를 기본 프롬프트로 업그레이드합니다.
+   * STT 텍스트를 업그레이드합니다.
    * 
    * @param audioId 오디오 엔티티 ID
    * @param userId 사용자 ID
    * @returns 업그레이드된 텍스트 정보
    */
   async upgradeSttText(audioId: string, userId: string): Promise<any> {
-    return this.upgradeSttTextWithTemplate(audioId, userId, 'default-prompt.txt');
-  }
-
-  /**
-   * STT 텍스트를 지정된 프롬프트 템플릿으로 업그레이드합니다.
-   * 
-   * @param audioId 오디오 엔티티 ID
-   * @param userId 사용자 ID
-   * @param templateName 프롬프트 템플릿 이름
-   * @returns 업그레이드된 텍스트 정보
-   */
-  async upgradeSttTextWithTemplate(
-    audioId: string,
-    userId: string,
-    templateName: string = 'default-prompt.txt'
-  ): Promise<any> {
     try {
       // 1. 오디오 데이터 조회
       const audioEntity = await this.audioRepository.findOne({ where: { id: audioId } });
       if (!audioEntity) {
-        throw new Error(`오디오 데이터를 찾을 수 없습니다: ${audioId}`);
+        throw new NotFoundException(`오디오 데이터를 찾을 수 없습니다: ${audioId}`);
       }
-
-      if (!audioEntity.transcriptionText) {
-        throw new Error(`오디오에 변환된 텍스트가 없습니다: ${audioId}`);
-      }
-
-      this.logger.log(`STT 업그레이드 시작: ID=${audioId}, 사용자=${userId}, 템플릿=${templateName}, 텍스트 길이=${audioEntity.transcriptionText.length}`);
       
-      // 2. 프롬프트 템플릿 로드
-      const promptTemplate = await this.getPromptTemplate(templateName);
+      // 2. 변환된 텍스트가 없는 경우 처리
+      if (!audioEntity.transcriptionText) {
+        throw new InternalServerErrorException('업그레이드할 STT 텍스트가 없습니다.');
+      }
+
+      this.logger.log(`STT 업그레이드 시작: ID=${audioId}, 사용자=${userId}, 텍스트 길이=${audioEntity.transcriptionText.length}`);
       
       // 3. 텍스트를 청크로 분할
       const textChunks = this.splitTextIntoChunks(audioEntity.transcriptionText);
       this.logger.log(`텍스트를 ${textChunks.length}개의 청크로 분할 완료`);
       
       // 4. 각 청크를 LLM으로 처리
-      const processedChunks = await this.processTextChunksWithTemplate(textChunks, promptTemplate);
+      const processedChunks = await this.processTextChunksWithLLM(textChunks);
       this.logger.log(`${processedChunks.length}개의 청크 LLM 처리 완료`);
       
       // 5. 처리된 청크 결합
@@ -169,11 +102,14 @@ export class SttUpgradeService {
       this.logger.log(`업그레이드된 텍스트 길이: ${upgradedText.length}`);
       
       // 6. 새 텍스트 파일을 R2에 저장
-      const baseName = path.basename(audioEntity.audioKey || 'audio', path.extname(audioEntity.audioKey || '.audio'));
+      const filename = path.basename(audioEntity.audioKey || '').split('.')[0] || 
+                      audioEntity.originalFilename || 
+                      `audio_${audioEntity.id}`;
+                      
       const upgradedTextKey = await this.saveUpgradedTextToR2(
         upgradedText,
         userId,
-        `${baseName}_upgraded`
+        `${filename}_upgraded`
       );
       
       // 7. 오디오 엔티티 업데이트
@@ -185,6 +121,7 @@ export class SttUpgradeService {
       
       const savedEntity = await this.audioRepository.save(audioEntity);
       
+      // 8. 응답 생성
       return {
         id: savedEntity.id,
         title: savedEntity.title,
@@ -195,7 +132,10 @@ export class SttUpgradeService {
         upgradedLength: savedEntity.upgradedText.length,
         chunkCount: textChunks.length,
         upgradedAt: savedEntity.upgradedAt,
-        templateUsed: templateName,
+        improvedPercentage: this.calculateImprovement(
+          savedEntity.transcriptionText, 
+          savedEntity.upgradedText
+        )
       };
     } catch (error) {
       this.logger.error(`STT 업그레이드 중 오류 발생: ${error.message}`, error.stack);
@@ -204,80 +144,47 @@ export class SttUpgradeService {
   }
 
   /**
-   * STT 텍스트를 사용자 정의 프롬프트로 업그레이드합니다.
+   * 텍스트 개선율을 계산합니다.
    * 
-   * @param audioId 오디오 엔티티 ID
-   * @param userId 사용자 ID
-   * @param customPrompt 사용자 정의 프롬프트
-   * @returns 업그레이드된 텍스트 정보
+   * @param originalText 원본 텍스트
+   * @param upgradedText 업그레이드된 텍스트
+   * @returns 개선율 (%)
    */
-  async upgradeSttTextWithCustomPrompt(
-    audioId: string,
-    userId: string,
-    customPrompt: string
-  ): Promise<any> {
-    try {
-      // 1. 오디오 데이터 조회
-      const audioEntity = await this.audioRepository.findOne({ where: { id: audioId } });
-      if (!audioEntity) {
-        throw new Error(`오디오 데이터를 찾을 수 없습니다: ${audioId}`);
+  private calculateImprovement(originalText: string, upgradedText: string): number {
+    if (!originalText || !upgradedText) return 0;
+    
+    // 텍스트 정규화
+    const normalizeText = (text: string) => {
+      return text
+        .replace(/\s+/g, ' ')
+        .replace(/[.,;!?]+/g, '')
+        .toLowerCase()
+        .trim();
+    };
+    
+    const normalizedOriginal = normalizeText(originalText);
+    const normalizedUpgraded = normalizeText(upgradedText);
+    
+    // 변경된 문자 수 계산
+    let changedChars = 0;
+    const minLength = Math.min(normalizedOriginal.length, normalizedUpgraded.length);
+    
+    for (let i = 0; i < minLength; i++) {
+      if (normalizedOriginal[i] !== normalizedUpgraded[i]) {
+        changedChars++;
       }
-
-      if (!audioEntity.transcriptionText) {
-        throw new Error(`오디오에 변환된 텍스트가 없습니다: ${audioId}`);
-      }
-
-      this.logger.log(`사용자 정의 프롬프트로 STT 업그레이드 시작: ID=${audioId}, 사용자=${userId}, 텍스트 길이=${audioEntity.transcriptionText.length}`);
-      
-      // 2. 텍스트를 청크로 분할
-      const textChunks = this.splitTextIntoChunks(audioEntity.transcriptionText);
-      this.logger.log(`텍스트를 ${textChunks.length}개의 청크로 분할 완료`);
-      
-      // 3. 사용자 정의 프롬프트 저장 (향후 재사용을 위해)
-      const promptFilename = `custom-${userId}-${Date.now()}.txt`;
-      await this.savePromptTemplate(promptFilename, customPrompt);
-      
-      // 4. 각 청크를 LLM으로 처리
-      const processedChunks = await this.processTextChunksWithTemplate(textChunks, customPrompt);
-      this.logger.log(`${processedChunks.length}개의 청크 LLM 처리 완료`);
-      
-      // 5. 처리된 청크 결합
-      const upgradedText = processedChunks.join('');
-      this.logger.log(`업그레이드된 텍스트 길이: ${upgradedText.length}`);
-      
-      // 6. 새 텍스트 파일을 R2에 저장
-      const baseName = path.basename(audioEntity.audioKey || 'audio', path.extname(audioEntity.audioKey || '.audio'));
-      const upgradedTextKey = await this.saveUpgradedTextToR2(
-        upgradedText,
-        userId,
-        `${baseName}_upgraded_custom`
-      );
-      
-      // 7. 오디오 엔티티 업데이트
-      audioEntity.upgradedText = upgradedText;
-      audioEntity.upgradedTextKey = upgradedTextKey;
-      audioEntity.upgradedTextUrl = this.getTextFilePublicUrl(upgradedTextKey);
-      audioEntity.isUpgraded = true;
-      audioEntity.upgradedAt = new Date();
-      
-      const savedEntity = await this.audioRepository.save(audioEntity);
-      
-      return {
-        id: savedEntity.id,
-        title: savedEntity.title,
-        originalText: savedEntity.transcriptionText,
-        upgradedText: savedEntity.upgradedText,
-        upgradedTextUrl: savedEntity.upgradedTextUrl,
-        originalLength: savedEntity.transcriptionText.length,
-        upgradedLength: savedEntity.upgradedText.length,
-        chunkCount: textChunks.length,
-        upgradedAt: savedEntity.upgradedAt,
-        templateUsed: 'custom',
-      };
-    } catch (error) {
-      this.logger.error(`사용자 정의 프롬프트로 STT 업그레이드 중 오류 발생: ${error.message}`, error.stack);
-      throw error;
     }
+    
+    // 길이 차이 반영
+    changedChars += Math.abs(normalizedOriginal.length - normalizedUpgraded.length);
+    
+    // 변경률 계산 (최대 100%)
+    const changePercentage = Math.min(
+      100, 
+      (changedChars / Math.max(normalizedOriginal.length, 1)) * 100
+    );
+    
+    return Math.round(changePercentage * 10) / 10; // 소수점 한 자리까지
   }
 
   /**
@@ -292,15 +199,21 @@ export class SttUpgradeService {
     let currentChunk = '';
     let buffer = '';
     
+    // 텍스트가 없는 경우 빈 배열 반환
+    if (!text || text.trim() === '') {
+      return chunks;
+    }
+    
     // 텍스트를 문장 단위로 분할 (마침표 + 공백 또는 마침표 + 줄바꿈으로 분할)
-    const sentences = text.split(/(?<=\.\s)|(?<=\.\n)/);
+    // 느낌표와 물음표도 문장 구분자로 추가
+    const sentences = text.split(/(?<=\.[ \n])|(?<=\?[ \n])|(?<=\![ \n])/);
     
     for (let sentence of sentences) {
       // 문장이 비어있으면 건너뛰기
       if (!sentence.trim()) continue;
       
-      // 문장이 마침표로 끝나지 않으면 마침표 추가
-      if (!sentence.trim().endsWith('.')) {
+      // 문장이 마침표, 느낌표, 물음표로 끝나지 않으면 마침표 추가
+      if (!sentence.trim().match(/[.!?]$/)) {
         sentence = sentence.trim() + '.';
       }
       
@@ -316,16 +229,16 @@ export class SttUpgradeService {
           // 현재 청크가 없는 경우 (버퍼만 있는 경우)
           // 버퍼가 최대 길이를 초과하면 강제 분할
           if (buffer.length >= this.MAX_CHUNK_SIZE) {
-            // 마지막 마침표 위치 찾기
-            const lastPeriodIndex = this.findLastPeriodBeforeLimit(buffer, this.MAX_CHUNK_SIZE);
+            // 마지막 문장 종결 위치 찾기
+            const lastSentenceEndIndex = this.findLastSentenceEndBeforeLimit(buffer, this.MAX_CHUNK_SIZE);
             
-            if (lastPeriodIndex > 0) {
-              // 마침표 위치까지 청크 저장
-              chunks.push(buffer.substring(0, lastPeriodIndex + 1));
+            if (lastSentenceEndIndex > 0) {
+              // 문장 종결 위치까지 청크 저장
+              chunks.push(buffer.substring(0, lastSentenceEndIndex + 1));
               // 나머지는 새 버퍼로
-              buffer = buffer.substring(lastPeriodIndex + 1);
+              buffer = buffer.substring(lastSentenceEndIndex + 1);
             } else {
-              // 마침표를 찾을 수 없으면 그냥 최대 길이에서 자름 (최후의 수단)
+              // 문장 종결 부호를 찾을 수 없으면 최대 길이에서 자름 (최후의 수단)
               chunks.push(buffer.substring(0, this.MAX_CHUNK_SIZE));
               buffer = buffer.substring(this.MAX_CHUNK_SIZE);
             }
@@ -350,20 +263,20 @@ export class SttUpgradeService {
   }
   
   /**
-   * 주어진 최대 길이 이전의 마지막 마침표 인덱스 찾기
+   * 주어진 최대 길이 이전의 마지막 문장 종결 부호 인덱스 찾기
    * 
    * @param text 검색할 텍스트
    * @param maxLength 최대 길이
-   * @returns 마지막 마침표 인덱스 또는 -1
+   * @returns 마지막 문장 종결 부호 인덱스 또는 -1
    */
-  private findLastPeriodBeforeLimit(text: string, maxLength: number): number {
+  private findLastSentenceEndBeforeLimit(text: string, maxLength: number): number {
     // 최대 길이까지만 검색
     const searchText = text.substring(0, maxLength);
     
-    // 마지막 마침표 찾기
+    // 마지막 문장 종결 부호 찾기
     for (let i = searchText.length - 1; i >= 0; i--) {
-      // 마침표 찾고, 그 다음이 공백이거나 줄바꿈이거나 텍스트의 끝이면 해당 위치 반환
-      if (searchText[i] === '.' && 
+      // 마침표, 느낌표, 물음표 찾고, 그 다음이 공백이거나 줄바꿈이거나 텍스트의 끝이면 해당 위치 반환
+      if ((searchText[i] === '.' || searchText[i] === '!' || searchText[i] === '?') && 
           (i === searchText.length - 1 || 
            searchText[i + 1] === ' ' || 
            searchText[i + 1] === '\n')) {
@@ -371,7 +284,7 @@ export class SttUpgradeService {
       }
     }
     
-    return -1; // 마침표를 찾지 못한 경우
+    return -1; // 문장 종결 부호를 찾지 못한 경우
   }
 
   /**
@@ -407,16 +320,12 @@ export class SttUpgradeService {
   }
 
   /**
-   * 템플릿을 사용하여 텍스트 청크를 처리합니다.
+   * 텍스트 청크를 LLM으로 처리합니다.
    * 
    * @param chunks 텍스트 청크 배열
-   * @param promptTemplate 프롬프트 템플릿
    * @returns 처리된 텍스트 청크 배열
    */
-  private async processTextChunksWithTemplate(
-    chunks: string[],
-    promptTemplate: string
-  ): Promise<string[]> {
+  private async processTextChunksWithLLM(chunks: string[]): Promise<string[]> {
     // 청크에 컨텍스트 추가 (문맥 유지를 위한 중복 영역)
     const contextChunks = this.addContextOverlap(chunks);
     
@@ -431,12 +340,7 @@ export class SttUpgradeService {
       const batchPromises = batch.map(async ({ chunk, index }) => {
         try {
           this.logger.log(`청크 ${index + 1}/${chunks.length} 처리 시작, 길이: ${chunk.length}`);
-          const processedChunk = await this.processSingleChunkWithTemplate(
-            chunk, 
-            promptTemplate, 
-            index, 
-            chunks.length
-          );
+          const processedChunk = await this.processSingleChunkWithLLM(chunk, index, chunks.length);
           
           // 원본 청크 길이와 비교하여 로깅
           const originalLength = chunks[index].length;
@@ -460,37 +364,63 @@ export class SttUpgradeService {
   }
 
   /**
-   * 템플릿을 사용하여 단일 텍스트 청크를 처리합니다.
+   * 단일 텍스트 청크를 LLM으로 처리합니다.
    * 
    * @param chunk 처리할 텍스트 청크
-   * @param promptTemplate 프롬프트 템플릿
    * @param chunkIndex 청크 인덱스
    * @param totalChunks 총 청크 수
    * @returns 처리된 텍스트
    */
-  private async processSingleChunkWithTemplate(
-    chunk: string, 
-    promptTemplate: string, 
-    chunkIndex: number, 
-    totalChunks: number
-  ): Promise<string> {
+  private async processSingleChunkWithLLM(chunk: string, chunkIndex: number, totalChunks: number): Promise<string> {
     try {
-      // 프롬프트 템플릿에 변수 치환
-      const prompt = promptTemplate
-        .replace(/{{CHUNK_TEXT}}/g, chunk)
-        .replace(/{{CHUNK_INDEX}}/g, String(chunkIndex + 1))
-        .replace(/{{TOTAL_CHUNKS}}/g, String(totalChunks));
+      // GPT 프롬프트 준비
+      const prompt = this.prepareSttUpgradePrompt(chunk, chunkIndex, totalChunks);
       
       // GPT 호출
       const response = await this.chatGptService.sendMessage(prompt, 'gpt-4o-mini');
       
       // 응답에서 필요한 텍스트 추출
-      return this.extractProcessedTextFromResponse(response);
+      const processedText = this.extractProcessedTextFromResponse(response);
+      
+      // 처리된 텍스트가 비어있거나 너무 짧은 경우 원본 반환
+      if (!processedText || processedText.length < chunk.length * 0.5) {
+        this.logger.warn(`청크 ${chunkIndex + 1} 처리 결과가 비정상적으로 짧습니다. 원본 사용.`);
+        return chunk;
+      }
+      
+      return processedText;
     } catch (error) {
       this.logger.error(`LLM 처리 중 오류: ${error.message}`, error.stack);
       // 오류 발생 시 원본 청크 반환
       return chunk;
     }
+  }
+
+  /**
+   * STT 업그레이드를 위한 프롬프트를 준비합니다.
+   * 
+   * @param chunk 처리할 텍스트 청크
+   * @param chunkIndex 청크 인덱스
+   * @param totalChunks 총 청크 수
+   * @returns GPT에 전송할 프롬프트
+   */
+  private prepareSttUpgradePrompt(chunk: string, chunkIndex: number, totalChunks: number): string {
+    // 프롬프트 템플릿 읽기
+    let promptTemplate = '';
+    
+    try {
+      promptTemplate = fs.readFileSync(this.PROMPT_PATH, 'utf-8');
+      this.logger.debug(`프롬프트 템플릿 로드 성공: ${this.PROMPT_PATH}`);
+    } catch (error) {
+      this.logger.warn(`프롬프트 템플릿 파일을 읽을 수 없습니다. 기본 템플릿을 사용합니다: ${error.message}`);
+      promptTemplate = this.getDefaultPromptTemplate();
+    }
+    
+    // 프롬프트 변수 치환
+    return promptTemplate
+      .replace(/\{\{CHUNK_TEXT\}\}/g, chunk)
+      .replace(/\{\{CHUNK_INDEX\}\}/g, String(chunkIndex + 1))
+      .replace(/\{\{TOTAL_CHUNKS\}\}/g, String(totalChunks));
   }
 
   /**
@@ -500,21 +430,36 @@ export class SttUpgradeService {
    * @returns 처리된 텍스트
    */
   private extractProcessedTextFromResponse(response: string): string {
+    if (!response || response.trim() === '') {
+      return '';
+    }
+    
     // 응답에서 텍스트 추출 (마크다운 블록이나 특수 태그가 있을 경우 처리)
     
-    // 일반적으로 GPT는 마크다운 블록으로 코드를 반환할 수 있음
+    // 1. 코드 블록 확인
     const codeBlockMatch = response.match(/```(?:text)?\n([\s\S]*?)\n```/);
     if (codeBlockMatch && codeBlockMatch[1]) {
       return codeBlockMatch[1].trim();
     }
     
-    // 특수 포맷 태그가 있는 경우
+    // 2. 특수 태그 확인
     const tagMatch = response.match(/<upgraded_text>([\s\S]*?)<\/upgraded_text>/);
     if (tagMatch && tagMatch[1]) {
       return tagMatch[1].trim();
     }
     
-    // 그 외의 경우 전체 텍스트 반환
+    // 3. 구분선 이후 텍스트 확인
+    const separatorMatch = response.match(/(?:수정된 텍스트(:)?|변환 결과(:)?|결과(:)?)\s*\n+([\s\S]+)/i);
+    if (separatorMatch && separatorMatch[4]) {
+      return separatorMatch[4].trim();
+    }
+    
+    // 4. 그 외의 경우 전체 텍스트 반환 (첫 줄이 지시사항인 경우 제외)
+    const lines = response.trim().split('\n');
+    if (lines.length > 1 && lines[0].match(/^(수정된 텍스트|변환 결과|결과):/i)) {
+      return lines.slice(1).join('\n').trim();
+    }
+    
     return response.trim();
   }
 
@@ -539,8 +484,16 @@ export class SttUpgradeService {
 7. 주어가 생략된 경우 적절히 추가하세요.
 8. 존댓말과 반말이 섞여있다면 일관되게 수정하세요.
 9. 전문 용어나 고유명사는 최대한 보존하세요.
+10. 원본 텍스트와 형식이 최대한 유사하게 유지하세요.
+11. 문장 간의 자연스러운 연결과 논리적 흐름을 개선하세요.
 
-### 수정된 텍스트만 반환해주세요:
+### 중요 규칙:
+- 원본 텍스트에 없는 새로운 정보를 추가하지 마세요.
+- 원본 텍스트의 의미를 변경하지 마세요.
+- 태그나 마크다운 없이 순수 텍스트만 반환하세요.
+- 설명이나 이유를 포함하지 말고 개선된 텍스트만 반환하세요.
+
+### 수정된 텍스트:
 `;
   }
 
@@ -605,285 +558,5 @@ export class SttUpgradeService {
     const accountId = this.configService.get('R2_ACCOUNT_ID');
     const bucketName = this.configService.get('R2_BUCKET_NAME');
     return `https://${accountId}.r2.cloudflarestorage.com/${bucketName}/${textKey}`;
-  }
-
-  /**
-   * 텍스트 내용이 변경되었는지 확인합니다.
-   * 
-   * @param originalText 원본 텍스트
-   * @param processedText 처리된 텍스트
-   * @returns 변경되었는지 여부
-   */
-  private isTextChanged(originalText: string, processedText: string): boolean {
-    // 기본적인 비교 (공백 및 줄바꿈 무시)
-    const normalizedOriginal = originalText.replace(/\s+/g, ' ').trim();
-    const normalizedProcessed = processedText.replace(/\s+/g, ' ').trim();
-    
-    // 95% 이상 동일하면 변경되지 않았다고 간주
-    const similarity = this.calculateSimilarity(normalizedOriginal, normalizedProcessed);
-    return similarity < 0.95;
-  }
-
-  /**
-   * 두 문자열의 유사도를 계산합니다. (간단한 구현)
-   * 
-   * @param str1 첫 번째 문자열
-   * @param str2 두 번째 문자열
-   * @returns 유사도 (0~1)
-   */
-  private calculateSimilarity(str1: string, str2: string): number {
-    // 레벤슈타인 거리 대신 간단한 비교 (실제로는 더 정교한 알고리즘 사용 권장)
-    const maxLength = Math.max(str1.length, str2.length);
-    if (maxLength === 0) return 1.0;
-    
-    let sameChars = 0;
-    const minLength = Math.min(str1.length, str2.length);
-    
-    for (let i = 0; i < minLength; i++) {
-      if (str1[i] === str2[i]) {
-        sameChars++;
-      }
-    }
-    
-    return sameChars / maxLength;
-  }
-
-  /**
-   * 처리 이력을 조회합니다.
-   * 
-   * @param userId 사용자 ID (선택)
-   * @returns 처리 이력 목록
-   */
-  async getUpgradeHistory(userId?: string): Promise<any[]> {
-    try {
-      const query = this.audioRepository.createQueryBuilder('audio')
-        .select([
-          'audio.id',
-          'audio.title',
-          'audio.userId',
-          'audio.isUpgraded',
-          'audio.upgradedAt',
-          'audio.upgradedTextUrl'
-        ])
-        .where('audio.isUpgraded = :isUpgraded', { isUpgraded: true });
-
-      // 사용자 ID가 지정된 경우 필터링
-      if (userId) {
-        query.andWhere('audio.userId = :userId', { userId });
-      }
-
-      // 최신순으로 정렬
-      query.orderBy('audio.upgradedAt', 'DESC');
-
-      const upgradedAudios = await query.getMany();
-      
-      return upgradedAudios.map(audio => ({
-        id: audio.id,
-        title: audio.title,
-        userId: audio.userId,
-        upgradedAt: audio.upgradedAt,
-        upgradedTextUrl: audio.upgradedTextUrl
-      }));
-    } catch (error) {
-      this.logger.error(`업그레이드 이력 조회 중 오류 발생: ${error.message}`, error.stack);
-      throw error;
-    }
-  }
-
-  /**
-   * 특정 오디오의 업그레이드 결과를 조회합니다.
-   * 
-   * @param audioId 오디오 ID
-   * @returns 업그레이드 결과
-   */
-  async getUpgradeResult(audioId: string): Promise<any> {
-    try {
-      const audioEntity = await this.audioRepository.findOne({ where: { id: audioId } });
-      if (!audioEntity) {
-        throw new Error(`오디오를 찾을 수 없습니다: ${audioId}`);
-      }
-
-      if (!audioEntity.isUpgraded) {
-        throw new Error(`아직 업그레이드되지 않은 오디오입니다: ${audioId}`);
-      }
-
-      return {
-        id: audioEntity.id,
-        title: audioEntity.title,
-        userId: audioEntity.userId,
-        originalText: audioEntity.transcriptionText,
-        upgradedText: audioEntity.upgradedText,
-        upgradedTextUrl: audioEntity.upgradedTextUrl,
-        originalLength: audioEntity.transcriptionText?.length || 0,
-        upgradedLength: audioEntity.upgradedText?.length || 0,
-        upgradedAt: audioEntity.upgradedAt
-      };
-    } catch (error) {
-      this.logger.error(`업그레이드 결과 조회 중 오류 발생: ${error.message}`, error.stack);
-      throw error;
-    }
-  }
-
-  /**
-   * 특정 오디오의 업그레이드 작업을 취소하고 원래 상태로 되돌립니다.
-   * 
-   * @param audioId 오디오 ID
-   * @returns 작업 결과
-   */
-  async cancelUpgrade(audioId: string): Promise<any> {
-    try {
-      const audioEntity = await this.audioRepository.findOne({ where: { id: audioId } });
-      if (!audioEntity) {
-        throw new Error(`오디오를 찾을 수 없습니다: ${audioId}`);
-      }
-
-      if (!audioEntity.isUpgraded) {
-        throw new Error(`업그레이드되지 않은 오디오입니다: ${audioId}`);
-      }
-
-      // 업그레이드 관련 필드 초기화
-      audioEntity.upgradedText = '';
-      audioEntity.upgradedTextKey = '';
-      audioEntity.upgradedTextUrl = '';
-      audioEntity.isUpgraded = false;
-      audioEntity.upgradedAt = new Date();
-
-      const savedEntity = await this.audioRepository.save(audioEntity);
-
-      return {
-        id: savedEntity.id,
-        title: savedEntity.title,
-        message: '업그레이드가 취소되었습니다.'
-      };
-    } catch (error) {
-      this.logger.error(`업그레이드 취소 중 오류 발생: ${error.message}`, error.stack);
-      throw error;
-    }
-  }
-
-  /**
-   * STT 업그레이드 작업 통계 조회
-   * 
-   * @param userId 사용자 ID (선택)
-   * @returns 통계 정보
-   */
-  async getUpgradeStatistics(userId?: string): Promise<any> {
-    try {
-      // 기본 쿼리 작성
-      const queryBuilder = this.audioRepository.createQueryBuilder('audio');
-      
-      // 사용자별 필터링
-      if (userId) {
-        queryBuilder.where('audio.userId = :userId', { userId });
-      }
-      
-      // 총 오디오 수
-      const totalCount = await queryBuilder.getCount();
-      
-      // 업그레이드된 오디오 수
-      const upgradedCount = await queryBuilder
-        .where('audio.isUpgraded = :isUpgraded', { isUpgraded: true })
-        .getCount();
-      
-      // 미업그레이드 오디오 수
-      const notUpgradedCount = await queryBuilder
-        .where('audio.transcriptionText IS NOT NULL')
-        .andWhere('(audio.isUpgraded = :isUpgraded OR audio.isUpgraded IS NULL)', { isUpgraded: false })
-        .getCount();
-      
-      // 업그레이드 가능한 오디오 수 (STT는 있지만 업그레이드 안된 것)
-      const upgradeReadyCount = await queryBuilder
-        .where('audio.transcriptionText IS NOT NULL')
-        .andWhere('(audio.isUpgraded = :isUpgraded OR audio.isUpgraded IS NULL)', { isUpgraded: false })
-        .getCount();
-      
-      // 텍스트 평균 길이 증가 비율 계산
-      const lengthStats = await queryBuilder
-        .select([
-          'AVG(LENGTH(audio.transcriptionText)) as avgOriginalLength',
-          'AVG(LENGTH(audio.upgradedText)) as avgUpgradedLength'
-        ])
-        .where('audio.isUpgraded = :isUpgraded', { isUpgraded: true })
-        .getRawOne();
-      
-      const avgOriginalLength = lengthStats?.avgOriginalLength || 0;
-      const avgUpgradedLength = lengthStats?.avgUpgradedLength || 0;
-      let lengthChangeRatio = 0;
-      
-      if (avgOriginalLength > 0) {
-        lengthChangeRatio = (avgUpgradedLength - avgOriginalLength) / avgOriginalLength;
-      }
-      
-      return {
-        totalAudioCount: totalCount,
-        upgradedCount: upgradedCount,
-        notUpgradedCount: notUpgradedCount,
-        upgradeReadyCount: upgradeReadyCount,
-        avgOriginalLength: Math.round(avgOriginalLength),
-        avgUpgradedLength: Math.round(avgUpgradedLength),
-        lengthChangeRatio: lengthChangeRatio.toFixed(2),
-      };
-    } catch (error) {
-      this.logger.error(`통계 정보 조회 중 오류 발생: ${error.message}`, error.stack);
-      throw error;
-    }
-  }
-
-  /**
-   * 모든 프롬프트 템플릿을 조회합니다.
-   */
-  async getAllPromptTemplates(): Promise<any[]> {
-    try {
-      const templates = await this.getAvailablePromptTemplates();
-      const result: Array<{
-        name: string;
-        isCustom: boolean;
-        preview: string;
-        createdAt: Date | null;
-      }> = [];
-      
-      for (const templateName of templates) {
-        // 사용자 정의 프롬프트인지 확인 (파일명으로 판단)
-        const isCustom = templateName.startsWith('custom-');
-        
-        // 프롬프트 내용 읽기
-        const content = await this.getPromptTemplate(templateName);
-        
-        // 첫 100자만 미리보기로 사용
-        const preview = content.substring(0, 100) + (content.length > 100 ? '...' : '');
-        
-        result.push({
-          name: templateName,
-          isCustom: isCustom,
-          preview: preview,
-          createdAt: isCustom ? this.getCreationTimeFromCustomName(templateName) : null
-        });
-      }
-      
-      return result;
-    } catch (error) {
-      this.logger.error(`프롬프트 템플릿 목록 조회 중 오류 발생: ${error.message}`, error.stack);
-      throw error;
-    }
-  }
-  
-  /**
-   * 사용자 정의 프롬프트 파일명에서 생성 시간을 추출합니다.
-   */
-  private getCreationTimeFromCustomName(fileName: string): Date | null {
-    try {
-      // 파일명 형식: custom-userId-timestamp.txt
-      const parts = fileName.split('-');
-      if (parts.length >= 3) {
-        const timestampWithExt = parts[parts.length - 1];
-        const timestamp = parseInt(timestampWithExt.split('.')[0]);
-        if (!isNaN(timestamp)) {
-          return new Date(timestamp);
-        }
-      }
-      return null;
-    } catch (error) {
-      return null;
-    }
   }
 }
