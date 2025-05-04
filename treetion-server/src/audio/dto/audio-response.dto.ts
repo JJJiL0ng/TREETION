@@ -31,4 +31,23 @@ export class AudioResponseDto {
 
     @ApiProperty({ description: '오디오 파일의 언어', required: false })
     language?: string;
+    
+    // STT 업그레이드 관련 필드 추가
+    @ApiProperty({ description: '업그레이드된 텍스트 변환 결과', required: false })
+    upgradedText?: string;
+
+    @ApiProperty({ description: '업그레이드된 텍스트 파일의 R2 스토리지 키', required: false })
+    upgradedTextKey?: string;
+
+    @ApiProperty({ description: '업그레이드된 텍스트 파일의 공개 URL', required: false })
+    upgradedTextUrl?: string;
+
+    @ApiProperty({ description: 'STT 텍스트 업그레이드 여부', required: false, default: false })
+    isUpgraded?: boolean;
+
+    @ApiProperty({ description: 'STT 텍스트 업그레이드 완료 시간', required: false })
+    upgradedAt?: Date;
+
+    @ApiProperty({ description: 'STT 텍스트 개선율 (%)', required: false })
+    improvedPercentage?: number;
 }
