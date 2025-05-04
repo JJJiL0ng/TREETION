@@ -18,8 +18,13 @@ const RecordPage = () => {
   const [recordingTime, setRecordingTime] = useState(0);
   const [uploadStatus, setUploadStatus] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [isUpgradeUploading, setIsUpgradeUploading] = useState(false); // 업그레이드 업로드 상태
   const [isDragging, setIsDragging] = useState(false);
   const [draggedFileName, setDraggedFileName] = useState('');
+  const [compareResults, setCompareResults] = useState<{
+    standard?: any;
+    upgraded?: any;
+  }>({});
   
   // API URL 설정
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
@@ -214,6 +219,45 @@ const RecordPage = () => {
     }
   };
   
+  // 준비된 FormData 생성 함수
+  const prepareFormData = () => {
+    if (!audioBlob) {
+      return null;
+    }
+
+    // 파일 확장자 결정
+    let fileExtension = '.webm';
+    if (audioBlob.type.includes('mp3') || audioBlob.type.includes('mpeg')) {
+      fileExtension = '.mp3';
+    } else if (audioBlob.type.includes('wav')) {
+      fileExtension = '.wav';
+    }
+    
+    // FormData 생성 및 파일 추가
+    const formData = new FormData();
+    const fileName = draggedFileName || `recording_${Date.now()}${fileExtension}`;
+    
+    // 오디오 파일을 원본 형식 그대로 사용
+    const audioFile = new File([audioBlob], fileName, { 
+      type: audioBlob.type 
+    });
+    
+    console.log('업로드할 오디오 파일 정보:', {
+      name: audioFile.name,
+      type: audioFile.type,
+      size: audioFile.size
+    });
+    
+    // FormData에 파일 추가 - 필드명을 audioFile로 설정
+    formData.append('audioFile', audioFile);
+    
+    // 메타데이터 추가 - CreateAudioDto에 맞게 필드 설정
+    formData.append('title', draggedFileName || `녹음_${new Date().toISOString()}`);
+    formData.append('recordedAt', new Date().toISOString());
+
+    return formData;
+  };
+  
   // 서버에 오디오 업로드
   const uploadAudio = async () => {
     if (!audioBlob) {
@@ -225,35 +269,10 @@ const RecordPage = () => {
       setIsUploading(true);
       setUploadStatus('업로드 중...');
       
-      // 파일 확장자 결정
-      let fileExtension = '.webm';
-      if (audioBlob.type.includes('mp3') || audioBlob.type.includes('mpeg')) {
-        fileExtension = '.mp3';
-      } else if (audioBlob.type.includes('wav')) {
-        fileExtension = '.wav';
+      const formData = prepareFormData();
+      if (!formData) {
+        throw new Error('FormData 생성 실패');
       }
-      
-      // FormData 생성 및 파일 추가
-      const formData = new FormData();
-      const fileName = draggedFileName || `recording_${Date.now()}${fileExtension}`;
-      
-      // 오디오 파일을 원본 형식 그대로 사용
-      const audioFile = new File([audioBlob], fileName, { 
-        type: audioBlob.type 
-      });
-      
-      console.log('업로드할 오디오 파일 정보:', {
-        name: audioFile.name,
-        type: audioFile.type,
-        size: audioFile.size
-      });
-      
-      // FormData에 파일 추가 - 필드명을 audioFile로 설정
-      formData.append('audioFile', audioFile);
-      
-      // 메타데이터 추가 - CreateAudioDto에 맞게 필드 설정
-      formData.append('title', draggedFileName || `녹음_${new Date().toISOString()}`);
-      formData.append('recordedAt', new Date().toISOString());
       
       // FormData 내용 로깅
       console.log('FormData 내용:');
@@ -272,6 +291,12 @@ const RecordPage = () => {
       
       console.log('업로드 응답:', response);
       setUploadStatus('업로드 성공! 오디오 ID: ' + response.id);
+      
+      // 비교 결과에 일반 업로드 결과 저장
+      setCompareResults(prev => ({
+        ...prev,
+        standard: response
+      }));
       
       // 업로드 후 상태 초기화
       setAudioBlob(null);
@@ -296,6 +321,60 @@ const RecordPage = () => {
       }
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  // 업그레이드된 STT를 활용하여 오디오 업로드
+  const uploadWithUpgradedStt = async () => {
+    if (!audioBlob) {
+      setUploadStatus('업로드할 오디오가 없습니다.');
+      return;
+    }
+    
+    try {
+      setIsUpgradeUploading(true);
+      setUploadStatus('향상된 STT 기능으로 업로드 중...');
+      
+      const formData = prepareFormData();
+      if (!formData) {
+        throw new Error('FormData 생성 실패');
+      }
+      
+      // 추가 언어 정보 설정 (필요시)
+      formData.append('language', 'ko');
+      
+      // 업그레이드 업로드 엔드포인트로 전송
+      console.log('API 엔드포인트:', `${API_URL}/audio/upgrade-upload`);
+      const response = await api.upload('/audio/upgrade-upload', formData);
+      
+      console.log('업그레이드 업로드 응답:', response);
+      setUploadStatus('향상된 STT로 업로드 성공! 오디오 ID: ' + response.id);
+      
+      // 비교 결과에 업그레이드 업로드 결과 저장
+      setCompareResults(prev => ({
+        ...prev,
+        upgraded: response
+      }));
+      
+      // 업로드 후 상태 초기화
+      setAudioBlob(null);
+      setDraggedFileName('');
+      
+    } catch (error: any) {
+      console.error('업그레이드 업로드 오류:', error);
+      
+      const errorMessage = error.response?.data?.message || error.message || '알 수 없는 오류';
+      setUploadStatus(`향상된 STT 업로드 실패: ${errorMessage}`);
+      
+      if (error.response?.status === 401) {
+        setUploadStatus('인증이 필요합니다. 다시 로그인해주세요.');
+        useUserStore.getState().logout();
+        setTimeout(() => {
+          router.push('/auth/login');
+        }, 3000);
+      }
+    } finally {
+      setIsUpgradeUploading(false);
     }
   };
   
@@ -334,7 +413,7 @@ const RecordPage = () => {
             <button 
               onClick={startRecording}
               className="mb-4 px-6 py-2 text-2xl bg-primary text-blue-500 rounded hover:bg-primary-dark transition-colors"
-              disabled={isUploading}
+              disabled={isUploading || isUpgradeUploading}
             >
               녹음 시작
             </button>
@@ -359,21 +438,49 @@ const RecordPage = () => {
                   {draggedFileName ? `파일명: ${draggedFileName}` : '녹음된 오디오'} | 형식: {audioBlob.type || '알 수 없음'}
                 </p>
               </div>
-              <button 
-                onClick={uploadAudio}
-                disabled={isUploading}
-                className="px-6 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-              >
-                {isUploading ? (
-                  <span className="flex items-center">
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    업로드 중...
-                  </span>
-                ) : '업로드'}
-              </button>
+              
+              {/* 업로드 버튼 그룹 */}
+              <div className="flex space-x-4">
+                {/* 일반 업로드 버튼 */}
+                <button 
+                  onClick={uploadAudio}
+                  disabled={isUploading || isUpgradeUploading}
+                  className="px-6 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {isUploading ? (
+                    <span className="flex items-center">
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      업로드 중...
+                    </span>
+                  ) : '일반 업로드'}
+                </button>
+                
+                {/* 업그레이드 STT 업로드 버튼 */}
+                <button 
+                  onClick={uploadWithUpgradedStt}
+                  disabled={isUploading || isUpgradeUploading}
+                  className="px-6 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {isUpgradeUploading ? (
+                    <span className="flex items-center">
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      향상된 STT로 업로드 중...
+                    </span>
+                  ) : '향상된 STT로 업로드'}
+                </button>
+              </div>
+              
+              {/* 업로드 버튼 아래 설명 */}
+              <div className="mt-2 text-xs text-center text-gray-600 max-w-md">
+                <p>일반 업로드: 기본 STT 변환만 적용</p>
+                <p>향상된 STT 업로드: AI 기반 텍스트 품질 개선 적용</p>
+              </div>
             </div>
           )}
         </div>
@@ -419,7 +526,7 @@ const RecordPage = () => {
                   accept="audio/*" 
                   className="hidden" 
                   onChange={handleFileInputChange}
-                  disabled={isRecording || isUploading}
+                  disabled={isRecording || isUploading || isUpgradeUploading}
                 />
               </label>
               <p className="mt-2 text-xs text-gray-500">지원 형식: MP3, WAV, WebM 등 브라우저에서 지원하는 오디오 파일</p>
@@ -437,14 +544,68 @@ const RecordPage = () => {
           </div>
         )}
         
+        {/* 비교 결과 표시 영역 */}
+        {(compareResults.standard || compareResults.upgraded) && (
+          <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+            <h2 className="text-xl font-semibold mb-3">STT 변환 결과 비교</h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* 일반 STT 결과 */}
+              {compareResults.standard && (
+                <div className="border p-3 rounded-lg bg-white">
+                  <h3 className="font-medium mb-2 text-green-700">일반 STT 결과</h3>
+                  <div className="text-sm mb-2">
+                    <p><span className="font-semibold">ID:</span> {compareResults.standard.id}</p>
+                    <p><span className="font-semibold">제목:</span> {compareResults.standard.title}</p>
+                  </div>
+                  {compareResults.standard.transcriptionText && (
+                    <div className="mt-2">
+                      <p className="font-semibold text-sm">변환된 텍스트:</p>
+                      <div className="p-2 bg-gray-50 rounded-md text-xs overflow-auto max-h-40">
+                        {compareResults.standard.transcriptionText}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* 업그레이드된 STT 결과 */}
+              {compareResults.upgraded && (
+                <div className="border p-3 rounded-lg bg-white">
+                  <h3 className="font-medium mb-2 text-purple-700">향상된 STT 결과</h3>
+                  <div className="text-sm mb-2">
+                    <p><span className="font-semibold">ID:</span> {compareResults.upgraded.id}</p>
+                    <p><span className="font-semibold">제목:</span> {compareResults.upgraded.title}</p>
+                    {compareResults.upgraded.improvedPercentage && (
+                      <p><span className="font-semibold">개선율:</span> {compareResults.upgraded.improvedPercentage}%</p>
+                    )}
+                  </div>
+                  {compareResults.upgraded.upgradedText && (
+                    <div className="mt-2">
+                      <p className="font-semibold text-sm">변환된 텍스트:</p>
+                      <div className="p-2 bg-gray-50 rounded-md text-xs overflow-auto max-h-40">
+                        {compareResults.upgraded.upgradedText}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        
         <div className="border-t pt-4">
           <h2 className="text-xl font-semibold mb-2">사용 방법:</h2>
           <ol className="list-decimal pl-6 space-y-2">
             <li>녹음 시작 버튼을 클릭하여 오디오 녹음을 시작합니다.</li>
             <li>녹음 중지 버튼을 클릭하여 녹음을 종료합니다.</li>
-            <li>녹음된 오디오를 확인하고 업로드 버튼을 클릭합니다.</li>
+            <li>녹음된 오디오를 확인하고 업로드 버튼을 클릭합니다:</li>
+            <ul className="list-disc pl-6 mt-1">
+              <li><strong>일반 업로드</strong>: 기본 STT 변환만 적용</li>
+              <li><strong>향상된 STT로 업로드</strong>: AI 기반 텍스트 품질 개선 적용</li>
+            </ul>
             <li>또는, 기존 오디오 파일을 드래그하여 드롭존에 놓거나 파일 선택 버튼을 클릭하여 업로드할 수 있습니다.</li>
-            <li>업로드 성공/실패 상태가 표시됩니다.</li>
+            <li>업로드 성공 시 두 방식의 STT 결과를 비교할 수 있습니다.</li>
           </ol>
         </div>
       </div>
