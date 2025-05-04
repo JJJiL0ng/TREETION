@@ -12,6 +12,7 @@ import { AudioResponseDto } from './dto/audio-response.dto';
 import { AudioEntity } from './entities/audio.entity';
 import { SttWhisperService, SttResult } from '../stt-whisper/stt-whisper.service';
 import { SttUpgradeService } from '../stt-upgrade/stt-upgrade.service'; // STT 업그레이드 서비스 추가
+import { NotFoundException } from '@nestjs/common';
 
 @Injectable()
 export class AudioService {
@@ -470,4 +471,28 @@ export class AudioService {
 
         return mimeToExtension[baseMimeType] || '.audio';
     }
+    /**
+ * 오디오 정보를 조회합니다 (업그레이드된 STT 정보 포함).
+ * 
+ * @param audioId 조회할 오디오 ID
+ * @param userId 사용자 ID (권한 확인용)
+ * @returns 오디오 정보 (업그레이드된 STT 결과 포함)
+ */
+async findOneWithUpgradedStt(audioId: string, userId: string): Promise<AudioResponseDto> {
+    const audio = await this.audioRepository.findOne({ 
+      where: { id: audioId } 
+    });
+    
+    if (!audio) {
+      throw new NotFoundException(`오디오를 찾을 수 없습니다: ${audioId}`);
+    }
+    
+    // 권한 확인 (해당 사용자의 오디오인지)
+    if (audio.userId !== userId) {
+      throw new BadRequestException('이 오디오에 대한 접근 권한이 없습니다.');
+    }
+    
+    // DTO로 변환하여 반환
+    return this.mapToResponseDto(audio);
+  }
 }
