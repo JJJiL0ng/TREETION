@@ -3,11 +3,19 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api/auth/client';
+import { useRouter } from 'next/navigation';
+import { api } from '@/lib/api/auth/client';
 import { useUserStore } from '@/store/user-store';
+import { useRequiredAuth } from '@/hooks/auth/useRequiredAuth';
+import { AuthGuard } from '@/components/auth/AuthGuard';
 import { useRequiredAuth } from '@/hooks/auth/useRequiredAuth';
 import { AuthGuard } from '@/components/auth/AuthGuard';
 
 const RecordPage = () => {
+  // 인증 관련 훅 사용
+  const { user, isLoading: authLoading } = useRequiredAuth('/auth/login');
+  const router = useRouter();
+  
   // 인증 관련 훅 사용
   const { user, isLoading: authLoading } = useRequiredAuth('/auth/login');
   const router = useRouter();
@@ -33,6 +41,7 @@ const RecordPage = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   
   // 녹음 시간 업데이트
@@ -122,6 +131,7 @@ const RecordPage = () => {
         
         const audioBlob = new Blob(audioChunksRef.current, { type: actualMimeType });
         setAudioBlob(audioBlob);
+        setDraggedFileName('');
         setDraggedFileName('');
         
         // 스트림의 모든 트랙 중지
@@ -358,6 +368,7 @@ const RecordPage = () => {
       
       // 업로드 후 상태 초기화
       setAudioBlob(null);
+      setDraggedFileName('');
       setDraggedFileName('');
       
     } catch (error: any) {

@@ -25,7 +25,6 @@ import { SttWhisperModule } from './stt-whisper/stt-whisper.module';
 import { SttUpgradeModule } from './stt-upgrade/stt-upgrade.module';
 import { ChatGptModule } from './chat-gpt/chat-gpt.module';
 import { ClassModule } from './class/class.module';
-
 // 환경 설정 관련
 import appConfig from './config/app.config';
 import dbConfig from './config/db.config';
@@ -39,7 +38,7 @@ import apiConfig from './config/api.config';
       envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
       load: [appConfig, dbConfig, apiConfig, storageConfig], // 설정 파일 로드
     }),
-    
+
     // 데이터베이스 설정
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
@@ -54,7 +53,7 @@ import apiConfig from './config/api.config';
         };
       },
     }),
-    
+
     // 정적 파일 제공 (업로드된 오디오 파일 등)
     ServeStaticModule.forRootAsync({
       imports: [ConfigModule],
@@ -70,7 +69,7 @@ import apiConfig from './config/api.config';
         },
       ],
     }),
-    
+
     // 기능 모듈들
     AuthModule,
     UsersModule,
@@ -104,4 +103,4 @@ import apiConfig from './config/api.config';
     },
   ],
 })
-export class AppModule {}
+export class AppModule { }

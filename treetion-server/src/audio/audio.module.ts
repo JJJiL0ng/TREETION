@@ -41,5 +41,6 @@ if (!existsSync(uploadDir)) {
   controllers: [AudioController],
   providers: [AudioService],
   exports: [AudioService, SttWhisperModule],
+  exports: [AudioService, SttWhisperModule],
 })
 export class AudioModule {}
