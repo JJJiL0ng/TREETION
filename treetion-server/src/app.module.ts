@@ -1,4 +1,3 @@
-// src/app.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -45,10 +44,22 @@ import apiConfig from './config/api.config';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
         const dbOptions = configService.get('database');
+        
+        // 설정 로깅
+        console.log('Database connection config:', {
+          type: dbOptions.type,
+          host: dbOptions.host,
+          port: dbOptions.port,
+          username: dbOptions.username,
+          database: dbOptions.database,
+          ssl: dbOptions.ssl || false,
+        });
+        
+        // 자체 서명된 인증서를 허용하는 SSL 설정
         return {
           ...dbOptions,
           ssl: {
-            rejectUnauthorized: false,
+            rejectUnauthorized: false, // 자체 서명된 인증서 허용
           },
         };
       },
@@ -104,3 +115,4 @@ import apiConfig from './config/api.config';
   ],
 })
 export class AppModule { }
+}

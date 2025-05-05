@@ -3,7 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
-import { promisify } from 'util';
 import { S3 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { ConfigService } from '@nestjs/config';
@@ -15,10 +14,12 @@ import { SttUpgradeService } from '../stt-upgrade/stt-upgrade.service'; // STT �
 import { NotFoundException } from '@nestjs/common';
 import { ClassEntity } from '../class/entities/class.entity';
 
+
 @Injectable()
 export class AudioService {
     private readonly logger = new Logger(AudioService.name);
     private readonly s3Client: S3;
+    private readonly writeFileAsync = promisify(fs.writeFile);
     private readonly unlinkAsync = promisify(fs.unlink);
 
     constructor(
@@ -45,13 +46,11 @@ export class AudioService {
      * 오디오 파일을 R2에 업로드하고 메타데이터를 Supabase에 저장합니다.
      * 
      * 프로세스:
-     * 1. 임시 저장된 파일을 읽습니다.
-     * 2. R2에 파일을 업로드합니다.
-     * 3. 메타데이터와 R2 URL을 Supabase에 저장합니다.
-     * 4. 임시 파일을 삭제합니다.
-     * 5. 저장된 오디오 정보를 반환합니다.
+     * 1. 파일을 R2에 직접 업로드합니다.
+     * 2. 메타데이터와 R2 URL을 Supabase에 저장합니다.
+     * 3. 저장된 오디오 정보를 반환합니다.
      * 
-     * @param file 업로드된 오디오 파일 (Multer에 의해 임시 저장됨)
+     * @param file 업로드된 오디오 파일 (Multer에 의해 제공됨)
      * @param createAudioDto 오디오 메타데이터 (제목, 녹음 날짜)
      * @param userId JWT에서 추출한 사용자 ID
      * @returns 저장된 오디오 정보와 URL을 포함한 DTO
@@ -70,22 +69,43 @@ export class AudioService {
 
             this.logger.log(`사용할 파일 확장자: ${fileExtension}, 저장 경로: ${fileKey}`);
 
-            // 2. R2에 파일 업로드 (파일의 MIME 타입 전달)
-            const uploadResult = await this.uploadFileToR2(file.path, fileKey, file.mimetype);
+            // 2. R2에 파일 직접 업로드 (버퍼 사용)
+            const uploadResult = await this.uploadBufferToR2(file.buffer, fileKey, file.mimetype);
             this.logger.log(`R2 업로드 완료: ${uploadResult.Location}`);
 
             // 3. 공개 URL 생성 (ConfigService에서 가져온 PUBLIC_URL 사용)
             const publicUrl = this.generatePublicUrl(fileKey);
 
-            // 4. STT 서비스를 통해 오디오 변환 - 청크 처리 지원
+            // 4. STT 서비스를 통해 오디오 변환
             let transcriptionResult: SttResult | null = null;
             try {
-                // 청크 업로드 지원 메서드 호출
+                // 버퍼를 임시 파일로 저장하고 STT 서비스에 전달
+                const tempFilePath = path.join(os.tmpdir(), `audio-${Date.now()}${fileExtension}`);
+                await this.writeFileAsync(tempFilePath, file.buffer);
+                
+                // 임시 파일을 스트림으로 변환하여 STT 서비스에 전달
+                const tempFile: Express.Multer.File = {
+                    fieldname: file.fieldname,
+                    originalname: file.originalname,
+                    encoding: file.encoding,
+                    mimetype: file.mimetype,
+                    size: file.size,
+                    destination: path.dirname(tempFilePath),
+                    filename: path.basename(tempFilePath),
+                    path: tempFilePath,
+                    buffer: file.buffer,
+                    stream: null as any
+                };
+                
                 transcriptionResult = await this.sttWhisperService.transcribeAudio(
-                    file,
+                    tempFile,
                     userId,
                     createAudioDto.language || 'ko'
                 );
+                
+                // 임시 파일 정리
+                await this.unlinkAsync(tempFilePath);
+                
                 this.logger.log(`STT 변환 완료: ${transcriptionResult.text.substring(0, 50)}...`);
             } catch (sttError) {
                 this.logger.error(`STT 변환 실패, 오디오 저장은 계속 진행: ${sttError.message}`);
@@ -114,25 +134,11 @@ export class AudioService {
             const savedAudio = await this.audioRepository.save(audioEntity) as AudioEntity;
             this.logger.log(`사용자 ${userId}의 오디오 메타데이터 저장 완료: ID ${savedAudio.id}`);
 
-            // 6. 임시 파일 삭제
-            await this.unlinkAsync(file.path);
-            this.logger.log(`임시 파일 삭제 완료: ${file.path}`);
-
             // 7. 응답 DTO 형식으로 변환하여 반환
             return this.mapToResponseDto(savedAudio);
 
         } catch (error) {
             this.logger.error(`오디오 업로드 중 오류 발생: ${error.message}`, error.stack);
-
-            // 임시 파일이 존재하는 경우 삭제 시도
-            try {
-                if (file && file.path && fs.existsSync(file.path)) {
-                    await this.unlinkAsync(file.path);
-                    this.logger.log(`오류 후 임시 파일 삭제 완료: ${file.path}`);
-                }
-            } catch (cleanupError) {
-                this.logger.error(`임시 파일 삭제 중 오류: ${cleanupError.message}`);
-            }
 
             // 오류 유형에 따라 적절한 예외 발생
             if (error instanceof BadRequestException) {
@@ -300,13 +306,12 @@ export class AudioService {
     /**
      * 파일을 R2에 업로드합니다.
      * 
-     * @param filePath 로컬 파일 경로
+     * @param buffer 파일 버퍼
      * @param fileKey R2에 저장될 키(경로)
      * @param mimeType 파일의 MIME 타입
      * @returns 업로드 결과
      */
-    private async uploadFileToR2(filePath: string, fileKey: string, mimeType: string = 'audio/webm'): Promise<any> {
-        const fileStream = fs.createReadStream(filePath);
+    private async uploadBufferToR2(buffer: Buffer, fileKey: string, mimeType: string = 'audio/webm'): Promise<any> {
         const bucketName = this.configService.get('R2_BUCKET_NAME');
 
         // MIME 타입에서 기본 유형만 추출 (codecs 부분 제거)
@@ -318,7 +323,7 @@ export class AudioService {
             params: {
                 Bucket: bucketName,
                 Key: fileKey,
-                Body: fileStream,
+                Body: buffer,
                 ContentType: cleanMimeType,
             },
         });

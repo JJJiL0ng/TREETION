@@ -1,5 +1,5 @@
 // src/auth/auth.controller.ts
-import { Controller, Post, Body, UseGuards, Get, Req, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Get, Req, HttpCode, HttpStatus, Options } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { SocialAuthDto, RefreshTokenDto, AuthResponseDto } from './dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -88,5 +88,14 @@ export class AuthController {
     // 여기서는 클라이언트 측에서 토큰을 삭제하는 것이 주요 로직이지만
     // 필요하다면 서버 측에서도 토큰 블랙리스트 처리 등을 구현할 수 있습니다.
     return { message: 'Successfully logged out' };
+  }
+
+  @Options('code')
+  @HttpCode(HttpStatus.OK)
+  handlePreflight() {
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'Preflight OK'
+    };
   }
 }
