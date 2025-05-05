@@ -129,7 +129,7 @@ import {
       storage: multerStorage,
       fileFilter: audioFileFilter,
       limits: {
-        fileSize: 1024 * 1024 * 55, // 55MB 제한 (1시간 오디오 가정 + 여유분)
+        fileSize: 1024 * 1024 * 100, // 55MB 제한 (1시간 오디오 가정 + 여유분)
       },
     }))
     async create(
@@ -225,7 +225,7 @@ import {
       storage: multerStorage,
       fileFilter: audioFileFilter,
       limits: {
-        fileSize: 1024 * 1024 * 55, // 55MB 제한
+        fileSize: 1024 * 1024 * 100, // 55MB 제한
       },
     }))
     async createWithUpgradedStt(
