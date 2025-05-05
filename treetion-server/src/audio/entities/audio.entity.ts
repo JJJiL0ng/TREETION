@@ -1,7 +1,6 @@
 // src/audio/entities/audio.entity.ts
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
-import { ClassEntity } from '../../class/entities/class.entity';
 
 @Entity('audios')
 export class AudioEntity {
@@ -16,10 +15,6 @@ export class AudioEntity {
 
   @Column({ type: 'uuid' })
   userId: string;
-
-  // Class 관련 필드 추가
-  @Column({ type: 'uuid', nullable: true })
-  classId: string;
 
   @Column({ type: 'varchar', length: 255 })
   audioKey: string;
@@ -36,11 +31,6 @@ export class AudioEntity {
   @ManyToOne(() => User, { eager: true })
   @JoinColumn({ name: 'userId' })
   user: User;
-
-  // Class와의 관계 추가
-  @ManyToOne(() => ClassEntity, (classEntity) => classEntity.audios)
-  @JoinColumn({ name: 'classId' })
-  class: ClassEntity;
 
   // 기존 STT 필드
   @Column({ nullable: true })

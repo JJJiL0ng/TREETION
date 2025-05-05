@@ -1,6 +1,6 @@
 import { Injectable, Logger, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { Repository } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
@@ -13,7 +13,6 @@ import { AudioEntity } from './entities/audio.entity';
 import { SttWhisperService, SttResult } from '../stt-whisper/stt-whisper.service';
 import { SttUpgradeService } from '../stt-upgrade/stt-upgrade.service'; // STT 업그레이드 서비스 추가
 import { NotFoundException } from '@nestjs/common';
-import { ClassEntity } from '../class/entities/class.entity';
 
 @Injectable()
 export class AudioService {
@@ -24,8 +23,6 @@ export class AudioService {
     constructor(
         @InjectRepository(AudioEntity)
         private readonly audioRepository: Repository<AudioEntity>,
-        @InjectRepository(ClassEntity)
-        private readonly classRepository: Repository<ClassEntity>,
         private readonly configService: ConfigService,
         private readonly sttWhisperService: SttWhisperService,
         private readonly sttUpgradeService: SttUpgradeService, // 의존성 주입
@@ -64,18 +61,6 @@ export class AudioService {
         this.logger.log(`사용자 ${userId}의 오디오 파일 업로드 시작: ${file.originalname}, 타입: ${file.mimetype}, 크기: ${file.size}바이트`);
 
         try {
-            // 파일 유효성 검사
-            if (!file || !file.path) {
-                throw new BadRequestException('유효한 파일이 없습니다.');
-            }
-
-            // 파일 존재 여부 확인
-            if (!fs.existsSync(file.path)) {
-                throw new BadRequestException(`업로드된 파일을 찾을 수 없습니다: ${file.path}`);
-            }
-
-            this.logger.log(`파일 정보 - 이름: ${file.originalname}, 경로: ${file.path}, 크기: ${file.size}, MIME: ${file.mimetype}`);
-
             // 1. 파일 정보 준비
             const fileExtension = path.extname(file.originalname) || this.getExtensionFromMimeType(file.mimetype);
             const fileKey = `audios/${userId}/${Date.now()}${fileExtension}`;
@@ -83,14 +68,8 @@ export class AudioService {
             this.logger.log(`사용할 파일 확장자: ${fileExtension}, 저장 경로: ${fileKey}`);
 
             // 2. R2에 파일 업로드 (파일의 MIME 타입 전달)
-            let uploadResult;
-            try {
-                uploadResult = await this.uploadFileToR2(file.path, fileKey, file.mimetype);
-                this.logger.log(`R2 업로드 완료: ${uploadResult.Location}`);
-            } catch (uploadError) {
-                this.logger.error(`R2 업로드 실패: ${uploadError.message}`, uploadError.stack);
-                throw new InternalServerErrorException(`오디오 파일 업로드 실패: ${uploadError.message}`);
-            }
+            const uploadResult = await this.uploadFileToR2(file.path, fileKey, file.mimetype);
+            this.logger.log(`R2 업로드 완료: ${uploadResult.Location}`);
 
             // 3. 공개 URL 생성 (ConfigService에서 가져온 PUBLIC_URL 사용)
             const publicUrl = this.generatePublicUrl(fileKey);
@@ -177,32 +156,11 @@ export class AudioService {
         this.logger.log(`STT 업그레이드 적용 - 사용자 ${userId}의 오디오 파일 업로드 시작: ${file.originalname}`);
 
         try {
-            // 파일 유효성 검사
-            if (!file || !file.path) {
-                throw new BadRequestException('유효한 파일이 없습니다.');
-            }
-
-            // 파일 존재 여부 확인
-            if (!fs.existsSync(file.path)) {
-                throw new BadRequestException(`업로드된 파일을 찾을 수 없습니다: ${file.path}`);
-            }
-
-            this.logger.log(`파일 정보 - 이름: ${file.originalname}, 경로: ${file.path}, 크기: ${file.size}, MIME: ${file.mimetype}`);
-
             // 1. 기본 오디오 저장 로직 수행 (기존 create 메서드와 동일)
             const fileExtension = path.extname(file.originalname) || this.getExtensionFromMimeType(file.mimetype);
             const fileKey = `audios/${userId}/${Date.now()}${fileExtension}`;
             
-            // R2 업로드 시도 - 개선된 에러 핸들링으로 더 명확한 오류 메시지 제공
-            let uploadResult;
-            try {
-                uploadResult = await this.uploadFileToR2(file.path, fileKey, file.mimetype);
-                this.logger.log(`R2 업로드 완료: ${fileKey}`);
-            } catch (uploadError) {
-                this.logger.error(`R2 업로드 실패: ${uploadError.message}`, uploadError.stack);
-                throw new InternalServerErrorException(`오디오 파일 업로드 실패: ${uploadError.message}`);
-            }
-            
+            const uploadResult = await this.uploadFileToR2(file.path, fileKey, file.mimetype);
             const publicUrl = this.generatePublicUrl(fileKey);
             
             // 2. STT 서비스를 통해 오디오 변환
@@ -345,42 +303,12 @@ export class AudioService {
      * @returns 업로드 결과
      */
     private async uploadFileToR2(filePath: string, fileKey: string, mimeType: string = 'audio/webm'): Promise<any> {
-        // 파일 존재 여부 확인 및 로깅
-        if (!fs.existsSync(filePath)) {
-            this.logger.error(`파일이 존재하지 않습니다: ${filePath}`);
-            throw new Error(`파일이 존재하지 않습니다: ${filePath}`);
-        }
-
-        this.logger.log(`파일 업로드 시작 - 경로: ${filePath}, 크기: ${fs.statSync(filePath).size} 바이트`);
-
-        // 파일 스트림 생성 시도
-        let fileStream;
-        try {
-            fileStream = fs.createReadStream(filePath);
-            fileStream.on('error', (err) => {
-                this.logger.error(`파일 스트림 생성 오류: ${err.message}`, err.stack);
-                throw new Error(`파일 스트림 생성 오류: ${err.message}`);
-            });
-        } catch (streamError) {
-            this.logger.error(`파일 스트림 생성 실패: ${streamError.message}`, streamError.stack);
-            throw new Error(`파일 스트림 생성 실패: ${streamError.message}`);
-        }
-
+        const fileStream = fs.createReadStream(filePath);
         const bucketName = this.configService.get('R2_BUCKET_NAME');
-        if (!bucketName) {
-            this.logger.error('R2_BUCKET_NAME이 설정되지 않았습니다');
-            throw new Error('R2_BUCKET_NAME이 설정되지 않았습니다');
-        }
 
         // MIME 타입에서 기본 유형만 추출 (codecs 부분 제거)
         const cleanMimeType = mimeType.split(';')[0].trim();
         this.logger.log(`파일 MIME 타입: ${mimeType}, 정리된 타입: ${cleanMimeType}`);
-
-        // R2 클라이언트 확인
-        if (!this.s3Client) {
-            this.logger.error('R2 클라이언트가 초기화되지 않았습니다');
-            throw new Error('R2 클라이언트가 초기화되지 않았습니다');
-        }
 
         const upload = new Upload({
             client: this.s3Client,
@@ -393,18 +321,10 @@ export class AudioService {
         });
 
         try {
-            this.logger.log(`R2 업로드 시작: ${fileKey}`);
             const result = await upload.done();
-            this.logger.log(`R2 업로드 완료: ${fileKey}`);
-            
-            const r2AccountId = this.configService.get('R2_ACCOUNT_ID');
-            if (!r2AccountId) {
-                this.logger.warn('R2_ACCOUNT_ID가 설정되지 않았습니다');
-            }
-            
             return {
                 ...result,
-                Location: `https://${r2AccountId}.r2.cloudflarestorage.com/${bucketName}/${fileKey}`,
+                Location: `https://${this.configService.get('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com/${bucketName}/${fileKey}`,
             };
         } catch (error) {
             this.logger.error(`R2 업로드 실패: ${error.message}`, error.stack);
@@ -574,60 +494,5 @@ async findOneWithUpgradedStt(audioId: string, userId: string): Promise<AudioResp
     
     // DTO로 변환하여 반환
     return this.mapToResponseDto(audio);
-  }
-  // src/audio/audio.service.ts에 추가할 메서드들
-
-// 특정 클래스에 오디오 추가
-async addAudioToClass(audioId: string, classId: string, userId: string): Promise<AudioEntity> {
-    // 오디오와 클래스가 모두 해당 사용자의 것인지 확인
-    const audio = await this.audioRepository.findOne({ where: { id: audioId, userId } });
-    if (!audio) {
-      throw new NotFoundException(`Audio with ID ${audioId} not found or does not belong to user`);
-    }
-  
-    const classEntity = await this.classRepository.findOne({ where: { id: classId, userId } });
-    if (!classEntity) {
-      throw new NotFoundException(`Class with ID ${classId} not found or does not belong to user`);
-    }
-  
-    // 오디오에 클래스 ID 할당
-    audio.classId = classId;
-    return this.audioRepository.save(audio);
-  }
-  
-  // 특정 클래스에서 오디오 제거 (클래스에서만 제거하고 오디오는 삭제하지 않음)
-  async removeAudioFromClass(audioId: string, userId: string): Promise<AudioEntity> {
-    const audio = await this.audioRepository.findOne({ where: { id: audioId, userId } });
-    if (!audio) {
-      throw new NotFoundException(`Audio with ID ${audioId} not found or does not belong to user`);
-    }
-  
-    audio.classId = null as any;
-    return this.audioRepository.save(audio);
-  }
-  
-  // 특정 클래스의 모든 오디오 조회
-  async findAllAudiosByClass(classId: string, userId: string): Promise<AudioEntity[]> {
-    // 클래스가 해당 사용자의 것인지 확인
-    const classEntity = await this.classRepository.findOne({ where: { id: classId, userId } });
-    if (!classEntity) {
-      throw new NotFoundException(`Class with ID ${classId} not found or does not belong to user`);
-    }
-  
-    return this.audioRepository.find({
-      where: { classId, userId },
-      order: { createdAt: 'DESC' }
-    });
-  }
-  
-  // 클래스에 속하지 않은 모든 오디오 조회
-  async findAllUnclassifiedAudios(userId: string): Promise<AudioEntity[]> {
-    return this.audioRepository.find({
-      where: { 
-        userId,
-        classId: IsNull() 
-      },
-      order: { createdAt: 'DESC' }
-    });
   }
 }
