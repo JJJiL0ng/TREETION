@@ -115,4 +115,3 @@ import apiConfig from './config/api.config';
   ],
 })
 export class AppModule { }
-}
