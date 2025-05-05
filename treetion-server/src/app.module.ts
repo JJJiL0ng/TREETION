@@ -24,6 +24,7 @@ import { SttClovaModule } from './stt-clova/stt-clova.module';
 import { SttWhisperModule } from './stt-whisper/stt-whisper.module';
 import { SttUpgradeModule } from './stt-upgrade/stt-upgrade.module';
 import { ChatGptModule } from './chat-gpt/chat-gpt.module';
+import { ClassModule } from './class/class.module';
 
 // 환경 설정 관련
 import appConfig from './config/app.config';
@@ -81,6 +82,7 @@ import apiConfig from './config/api.config';
     SttWhisperModule,
     SttUpgradeModule,
     ChatGptModule,
+    ClassModule,
   ],
   controllers: [AppController],
   providers: [

@@ -1,6 +1,6 @@
 import { Injectable, Logger, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
@@ -13,6 +13,7 @@ import { AudioEntity } from './entities/audio.entity';
 import { SttWhisperService, SttResult } from '../stt-whisper/stt-whisper.service';
 import { SttUpgradeService } from '../stt-upgrade/stt-upgrade.service'; // STT 업그레이드 서비스 추가
 import { NotFoundException } from '@nestjs/common';
+import { ClassEntity } from '../class/entities/class.entity';
 
 @Injectable()
 export class AudioService {
@@ -23,6 +24,8 @@ export class AudioService {
     constructor(
         @InjectRepository(AudioEntity)
         private readonly audioRepository: Repository<AudioEntity>,
+        @InjectRepository(ClassEntity)
+        private readonly classRepository: Repository<ClassEntity>,
         private readonly configService: ConfigService,
         private readonly sttWhisperService: SttWhisperService,
         private readonly sttUpgradeService: SttUpgradeService, // 의존성 주입
@@ -494,5 +497,60 @@ async findOneWithUpgradedStt(audioId: string, userId: string): Promise<AudioResp
     
     // DTO로 변환하여 반환
     return this.mapToResponseDto(audio);
+  }
+  // src/audio/audio.service.ts에 추가할 메서드들
+
+// 특정 클래스에 오디오 추가
+async addAudioToClass(audioId: string, classId: string, userId: string): Promise<AudioEntity> {
+    // 오디오와 클래스가 모두 해당 사용자의 것인지 확인
+    const audio = await this.audioRepository.findOne({ where: { id: audioId, userId } });
+    if (!audio) {
+      throw new NotFoundException(`Audio with ID ${audioId} not found or does not belong to user`);
+    }
+  
+    const classEntity = await this.classRepository.findOne({ where: { id: classId, userId } });
+    if (!classEntity) {
+      throw new NotFoundException(`Class with ID ${classId} not found or does not belong to user`);
+    }
+  
+    // 오디오에 클래스 ID 할당
+    audio.classId = classId;
+    return this.audioRepository.save(audio);
+  }
+  
+  // 특정 클래스에서 오디오 제거 (클래스에서만 제거하고 오디오는 삭제하지 않음)
+  async removeAudioFromClass(audioId: string, userId: string): Promise<AudioEntity> {
+    const audio = await this.audioRepository.findOne({ where: { id: audioId, userId } });
+    if (!audio) {
+      throw new NotFoundException(`Audio with ID ${audioId} not found or does not belong to user`);
+    }
+  
+    audio.classId = null as any;
+    return this.audioRepository.save(audio);
+  }
+  
+  // 특정 클래스의 모든 오디오 조회
+  async findAllAudiosByClass(classId: string, userId: string): Promise<AudioEntity[]> {
+    // 클래스가 해당 사용자의 것인지 확인
+    const classEntity = await this.classRepository.findOne({ where: { id: classId, userId } });
+    if (!classEntity) {
+      throw new NotFoundException(`Class with ID ${classId} not found or does not belong to user`);
+    }
+  
+    return this.audioRepository.find({
+      where: { classId, userId },
+      order: { createdAt: 'DESC' }
+    });
+  }
+  
+  // 클래스에 속하지 않은 모든 오디오 조회
+  async findAllUnclassifiedAudios(userId: string): Promise<AudioEntity[]> {
+    return this.audioRepository.find({
+      where: { 
+        userId,
+        classId: IsNull() 
+      },
+      order: { createdAt: 'DESC' }
+    });
   }
 }
