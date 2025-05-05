@@ -64,7 +64,7 @@ import {
   
   // 임시 저장을 위한 디스크 스토리지 설정
   const multerStorage = diskStorage({
-    destination: './uploads/temp', // 임시 저장 경로 (실제 프로젝트에서는 설정 파일에서 관리하는 것이 좋습니다)
+    destination: './uploads/temp', // 임시 저장 경로
     filename: (req, file, callback) => {
       // UUID를 사용하여 고유한 파일명 생성
       const uniqueFileName = `${uuidv4()}${extname(file.originalname)}`;
@@ -129,7 +129,7 @@ import {
       storage: multerStorage,
       fileFilter: audioFileFilter,
       limits: {
-        fileSize: 1024 * 1024 * 55, // 55MB 제한 (1시간 오디오 가정 + 여유분)
+        fileSize: 1024 * 1024 * 100, // 55MB 제한 (1시간 오디오 가정 + 여유분)
       },
     }))
     async create(
@@ -142,7 +142,7 @@ import {
         if (!file) {
           throw new BadRequestException('오디오 파일이 필요합니다. multipart/form-data 형식으로 audioFile 필드에 파일을 첨부해주세요.');
         }
-
+  
         console.log('받은 파일 정보:', {
           filename: file.originalname,
           mimetype: file.mimetype,
@@ -151,7 +151,7 @@ import {
         });
         
         console.log('받은 DTO 정보:', createAudioDto);
-
+  
         // JWT에서 사용자 정보 추출
         // req.user는 JwtAuthGuard에 의해 설정됨
         // 타입 단언을 통해 user 객체에 접근
@@ -174,6 +174,97 @@ import {
         
         // 기타 예외는 BadRequestException으로 변환
         throw new BadRequestException(`오디오 업로드 실패: ${error.message}`);
+      }
+    }
+  
+    /**
+     * STT 업그레이드가 적용된 오디오 파일 업로드
+     * 기존 업로드 로직과 동일하지만 STT 변환 후 LLM을 통한 품질 향상이 추가됨
+     * 
+     * @param file 업로드된 오디오 파일
+     * @param createAudioDto 오디오 메타데이터 (제목, 녹음 날짜)
+     * @param req 요청 객체 (JWT 토큰에서 사용자 정보 추출용)
+     * @returns 저장된 오디오 정보와 URL (업그레이드된 STT 포함)
+     */
+    @Post('upgrade-upload')
+    @ApiOperation({ summary: '품질 향상된 STT가 적용된 오디오 파일 업로드' })
+    @ApiConsumes('multipart/form-data')
+    @ApiBody({
+      schema: {
+        type: 'object',
+        properties: {
+          audioFile: {
+            type: 'string',
+            format: 'binary',
+            description: '업로드할 오디오 파일'
+          },
+          title: {
+            type: 'string',
+            description: '오디오 제목'
+          },
+          recordedAt: {
+            type: 'string',
+            format: 'date-time',
+            description: '녹음 날짜 (ISO 형식)'
+          },
+          language: {
+            type: 'string',
+            description: '오디오 언어 (기본값: ko)',
+            default: 'ko'
+          }
+        },
+        required: ['audioFile', 'title', 'recordedAt']
+      }
+    })
+    @ApiResponse({
+      status: 201,
+      description: '향상된 STT가 적용된 오디오 업로드 성공',
+      type: AudioResponseDto,
+    })
+    @UseInterceptors(FileInterceptor('audioFile', {
+      storage: multerStorage,
+      fileFilter: audioFileFilter,
+      limits: {
+        fileSize: 1024 * 1024 * 100, // 55MB 제한
+      },
+    }))
+    async createWithUpgradedStt(
+      @UploadedFile() file: Express.Multer.File,
+      @Body() createAudioDto: CreateAudioDto,
+      @Req() req: Request,
+    ): Promise<AudioResponseDto> {
+      try {
+        // 파일이 없는 경우 예외 처리
+        if (!file) {
+          throw new BadRequestException('오디오 파일이 필요합니다. multipart/form-data 형식으로 audioFile 필드에 파일을 첨부해주세요.');
+        }
+  
+        console.log('향상된 STT 적용 오디오 업로드 - 받은 파일 정보:', {
+          filename: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+          path: file.path
+        });
+        
+        console.log('향상된 STT 적용 오디오 업로드 - 받은 DTO 정보:', createAudioDto);
+  
+        // JWT에서 사용자 정보 추출
+        const user = req.user as { id: string, [key: string]: any };
+        
+        if (!user || !user.id) {
+          throw new BadRequestException('인증된 사용자 정보를 찾을 수 없습니다.');
+        }
+  
+        // STT 업그레이드가 적용된 서비스 메서드 호출
+        return await this.audioService.createWithUpgradedStt(file, createAudioDto, user.id);
+      } catch (error) {
+        console.error('향상된 STT 적용 오디오 업로드 오류:', error);
+        
+        if (error.status) {
+          throw error;
+        }
+        
+        throw new BadRequestException(`향상된 STT 적용 오디오 업로드 실패: ${error.message}`);
       }
     }
   }

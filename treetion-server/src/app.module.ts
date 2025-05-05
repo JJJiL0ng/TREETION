@@ -21,7 +21,9 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { SttClovaModule } from './stt-clova/stt-clova.module';
 import { SttWhisperModule } from './stt-whisper/stt-whisper.module';
-
+import { SttUpgradeModule } from './stt-upgrade/stt-upgrade.module';
+import { ChatGptModule } from './chat-gpt/chat-gpt.module';
+import { ClassModule } from './class/class.module';
 // 환경 설정 관련
 import appConfig from './config/app.config';
 import dbConfig from './config/db.config';
@@ -35,7 +37,7 @@ import apiConfig from './config/api.config';
       envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
       load: [appConfig, dbConfig, apiConfig, storageConfig], // 설정 파일 로드
     }),
-    
+
     // 데이터베이스 설정
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
@@ -62,7 +64,7 @@ import apiConfig from './config/api.config';
         };
       },
     }),
-    
+
     // 정적 파일 제공 (업로드된 오디오 파일 등)
     ServeStaticModule.forRootAsync({
       imports: [ConfigModule],
@@ -78,7 +80,7 @@ import apiConfig from './config/api.config';
         },
       ],
     }),
-    
+
     // 기능 모듈들
     AuthModule,
     UsersModule,
@@ -88,6 +90,9 @@ import apiConfig from './config/api.config';
     SvgModule,
     SttClovaModule,
     SttWhisperModule,
+    SttUpgradeModule,
+    ChatGptModule,
+    ClassModule,
   ],
   controllers: [AppController],
   providers: [
@@ -109,13 +114,5 @@ import apiConfig from './config/api.config';
     },
   ],
 })
-export class AppModule {
-  constructor(private configService: ConfigService) {
-    // 시작 시 환경 설정 로깅
-    console.log('Application starting with environment:', process.env.NODE_ENV || 'development');
-    console.log('DB_HOST:', process.env.DB_HOST);
-    console.log('DB_PORT:', process.env.DB_PORT);
-    console.log('DB_DATABASE:', process.env.DB_DATABASE);
-    console.log('DB_USERNAME:', process.env.DB_USERNAME);
-  }
+export class AppModule { }
 }
