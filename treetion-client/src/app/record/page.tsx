@@ -3,11 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api/auth/client';
-import { useRouter } from 'next/navigation';
-import { api } from '@/lib/api/auth/client';
 import { useUserStore } from '@/store/user-store';
-import { useRequiredAuth } from '@/hooks/auth/useRequiredAuth';
-import { AuthGuard } from '@/components/auth/AuthGuard';
 import { useRequiredAuth } from '@/hooks/auth/useRequiredAuth';
 import { AuthGuard } from '@/components/auth/AuthGuard';
 
@@ -15,11 +11,7 @@ const RecordPage = () => {
   // 인증 관련 훅 사용
   const { user, isLoading: authLoading } = useRequiredAuth('/auth/login');
   const router = useRouter();
-  
-  // 인증 관련 훅 사용
-  const { user, isLoading: authLoading } = useRequiredAuth('/auth/login');
-  const router = useRouter();
-  
+
   // 상태 관리
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -41,7 +33,6 @@ const RecordPage = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const dropZoneRef = useRef<HTMLDivElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
   
   // 녹음 시간 업데이트

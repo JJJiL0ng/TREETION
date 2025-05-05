@@ -20,9 +20,6 @@ export class AudioService {
     private readonly logger = new Logger(AudioService.name);
     private readonly s3Client: S3;
     private readonly unlinkAsync = promisify(fs.unlink);
-    private readonly logger = new Logger(AudioService.name);
-    private readonly s3Client: S3;
-    private readonly unlinkAsync = promisify(fs.unlink);
 
     constructor(
         @InjectRepository(AudioEntity)
