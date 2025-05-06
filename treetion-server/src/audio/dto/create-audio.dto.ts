@@ -1,4 +1,4 @@
-// 오디오 업로드 시 사용되는 DTO
+// src/audio/dto/create-audio.dto.ts
 import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, IsOptional, IsNumber, IsDateString, IsArray, IsUUID } from 'class-validator';
 
