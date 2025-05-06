@@ -8,8 +8,12 @@ import { S3, PutObjectCommand } from '@aws-sdk/client-s3';
 import * as ffmpeg from 'fluent-ffmpeg';
 import { exec } from 'child_process';
 import { ChatGptService } from '../chat-gpt/chat-gpt.service';
+// crypto 라이브러리 임포트 (UUID 생성용)
+import * as crypto from 'crypto';
+// FormData 지원 라이브러리 임포트
 import { FormData } from 'formdata-node';
 import { fileFromPath } from 'formdata-node/file-from-path';
+
 
 @Injectable()
 export class SttService {
@@ -26,7 +30,7 @@ export class SttService {
   private readonly CHUNK_SIZE_BYTES = this.CHUNK_SIZE_MB * 1024 * 1024;
   
   // 텍스트 청크 크기 설정 (GPT 처리용)
-  private readonly MAX_GPT_CHUNK_SIZE = 4000; // GPT 처리를 위한 최대 청크 크기
+  private readonly MAX_GPT_CHUNK_SIZE = 1500; // SttUpgradeService와 동일한 크기로 조정
   
   // 디렉토리 설정
   private readonly TEMP_DIR = path.join(process.cwd(), 'temp', 'stt');
@@ -46,23 +50,28 @@ export class SttService {
       },
     });
     
-    // 임시 디렉토리 생성
-    this.ensureTempDirectory();
+    // 임시 디렉토리 및 프롬프트 디렉토리 생성
+    this.ensureDirectories();
   }
 
   /**
-   * 임시 디렉토리가 존재하는지 확인하고, 없으면 생성합니다.
+   * 필요한 디렉토리가 존재하는지 확인하고, 없으면 생성합니다.
    */
-  private async ensureTempDirectory(): Promise<void> {
+  private async ensureDirectories(): Promise<void> {
     try {
+      // 임시 디렉토리 생성
       await this.mkdirAsync(this.TEMP_DIR, { recursive: true });
       this.logger.log(`임시 디렉토리 확인: ${this.TEMP_DIR}`);
       
-      // stt 폴더가 존재하는지 확인
-      const sttDir = path.dirname(this.PROMPT_PATH);
-      if (!fs.existsSync(sttDir)) {
-        await this.mkdirAsync(sttDir, { recursive: true });
-        this.logger.log(`STT 디렉토리 생성: ${sttDir}`);
+      // 프롬프트 디렉토리 생성
+      const promptDir = path.dirname(this.PROMPT_PATH);
+      await this.mkdirAsync(promptDir, { recursive: true });
+      this.logger.log(`STT 디렉토리 확인: ${promptDir}`);
+      
+      // 기본 프롬프트 파일이 없으면 생성
+      if (!fs.existsSync(this.PROMPT_PATH)) {
+        await this.writeFileAsync(this.PROMPT_PATH, this.getDefaultPromptTemplate());
+        this.logger.log(`기본 프롬프트 템플릿 파일 생성: ${this.PROMPT_PATH}`);
       }
     } catch (error) {
       this.logger.error(`디렉토리 생성 실패: ${error.message}`, error.stack);
@@ -563,6 +572,7 @@ export class SttService {
 
   /**
    * GPT를 사용하여 텍스트 품질을 향상시킵니다.
+   * SttUpgradeService의 청킹 알고리즘을 적용한 개선된 버전입니다.
    * 
    * @param text 원본 텍스트
    * @param userId 사용자 ID
@@ -579,16 +589,16 @@ export class SttService {
     this.logger.log(`GPT 텍스트 향상 시작: 텍스트 길이=${text.length}, 언어=${language}`);
     
     try {
-      // 1. 텍스트를 문장 단위로 적절한 크기의 청크로 분할
-      const textChunks = this.splitTextIntoSentenceChunks(text, this.MAX_GPT_CHUNK_SIZE);
+      // 1. 텍스트를 문장 단위로 적절한 크기의 청크로 분할 (SttUpgradeService 방식 적용)
+      const textChunks = this.splitTextIntoChunks(text);
       this.logger.log(`텍스트를 ${textChunks.length}개의 GPT 청크로 분할 완료`);
       
       // 2. 각 청크를 GPT로 처리
-      const enhancedChunks = await this.processTextChunksWithGpt(textChunks, language);
+      const enhancedChunks = await this.processTextChunksWithLLM(textChunks);
       this.logger.log(`${enhancedChunks.length}개의 GPT 청크 처리 완료`);
       
       // 3. 향상된 청크 결합
-      const enhancedText = enhancedChunks.join('\n');
+      const enhancedText = enhancedChunks.join('');
       this.logger.log(`향상된 텍스트 길이: ${enhancedText.length}`);
       
       // 4. 향상된 텍스트를 R2에 저장
@@ -608,76 +618,111 @@ export class SttService {
       throw new Error(`GPT 텍스트 향상 실패: ${error.message}`);
     }
   }
-
-  /**
-   * 텍스트를 문장 단위로 청크로 분할합니다.
-   * .이나 ? !등의 문장 부호가 마지막이 되도록 청킹합니다.
+/**
+   * 텍스트를 최대 길이를 초과하지 않는 청크로 분할합니다.
+   * SttUpgradeService의 알고리즘을 기반으로 함
+   * 마침표로 끝나는 문장 단위로 분할합니다.
    * 
    * @param text 분할할 텍스트
-   * @param maxChunkSize 최대 청크 크기
    * @returns 분할된 텍스트 청크 배열
    */
-  private splitTextIntoSentenceChunks(text: string, maxChunkSize: number): string[] {
+private splitTextIntoChunks(text: string): string[] {
+    const chunks: string[] = [];
+    let currentChunk = '';
+    let buffer = '';
+    
     // 텍스트가 없는 경우 빈 배열 반환
     if (!text || text.trim() === '') {
-      return [];
+      return chunks;
     }
     
-    const chunks: string[] = [];
+    // 텍스트를 문장 단위로 분할 (마침표 + 공백 또는 마침표 + 줄바꿈으로 분할)
+    // 느낌표와 물음표도 문장 구분자로 추가
+    const sentences = text.split(/(?<=\.[ \n])|(?<=\?[ \n])|(?<=\![ \n])/);
     
-    // 문장 구분자 (마침표, 물음표, 느낌표 + 공백 또는 줄바꿈)으로 텍스트 분할
-    const sentenceRegex = /[.!?][\s\n]|[.!?]$/g;
-    const sentences: string[] = [];
-    let lastIndex = 0;
-    
-    // 정규식으로 모든 문장 끝 위치 찾기
-    let match;
-    while ((match = sentenceRegex.exec(text)) !== null) {
-      // 현재 찾은 문장 구분자 위치까지의 텍스트를 문장으로 추출
-      const sentence = text.substring(lastIndex, match.index + 1);
-      sentences.push(sentence);
+    for (let sentence of sentences) {
+      // 문장이 비어있으면 건너뛰기
+      if (!sentence.trim()) continue;
       
-      // 다음 문장 시작 위치로 이동 (구분자 이후)
-      lastIndex = match.index + match[0].length;
-    }
-    
-    // 마지막 남은 텍스트 처리 (마침표 등으로 끝나지 않는 경우)
-    if (lastIndex < text.length) {
-      const remaining = text.substring(lastIndex);
-      if (remaining.trim()) {
-        sentences.push(remaining);
+      // 문장이 마침표, 느낌표, 물음표로 끝나지 않으면 마침표 추가
+      if (!sentence.trim().match(/[.!?]$/)) {
+        sentence = sentence.trim() + '.';
       }
-    }
-    
-    this.logger.log(`텍스트를 ${sentences.length}개의 문장으로 분할함`);
-    
-    // 문장들을 maxChunkSize 크기 이내의 청크로 결합
-    let currentChunk = '';
-    
-    for (const sentence of sentences) {
-      // 현재 청크 + 현재 문장의 길이가 최대 크기를 초과하는지 확인
-      if (currentChunk.length + sentence.length > maxChunkSize && currentChunk.length > 0) {
-        // 청크가 최대 크기를 초과하면 현재까지의 청크를 저장하고 새 청크 시작
-        chunks.push(currentChunk);
-        currentChunk = sentence;
+      
+      // 현재 청크 + 버퍼 + 현재 문장이 최대 길이를 초과하는지 검사
+      if ((currentChunk + buffer + sentence).length > this.MAX_GPT_CHUNK_SIZE) {
+        if (currentChunk) {
+          // 현재 청크가 있으면 저장
+          chunks.push(currentChunk);
+          // 버퍼와 현재 문장을 새 청크로 설정
+          currentChunk = buffer + sentence;
+          buffer = '';
+        } else {
+          // 현재 청크가 없는 경우 (버퍼만 있는 경우)
+          // 버퍼가 최대 길이를 초과하면 강제 분할
+          if (buffer.length >= this.MAX_GPT_CHUNK_SIZE) {
+            // 마지막 문장 종결 위치 찾기
+            const lastSentenceEndIndex = this.findLastSentenceEndBeforeLimit(buffer, this.MAX_GPT_CHUNK_SIZE);
+            
+            if (lastSentenceEndIndex > 0) {
+              // 문장 종결 위치까지 청크 저장
+              chunks.push(buffer.substring(0, lastSentenceEndIndex + 1));
+              // 나머지는 새 버퍼로
+              buffer = buffer.substring(lastSentenceEndIndex + 1);
+            } else {
+              // 문장 종결 부호를 찾을 수 없으면 최대 길이에서 자름 (최후의 수단)
+              chunks.push(buffer.substring(0, this.MAX_GPT_CHUNK_SIZE));
+              buffer = buffer.substring(this.MAX_GPT_CHUNK_SIZE);
+            }
+          }
+          
+          // 버퍼와 현재 문장을 새 청크로 설정
+          currentChunk = buffer + sentence;
+          buffer = '';
+        }
       } else {
-        // 청크가 최대 크기를 초과하지 않으면 현재 문장을 청크에 추가
-        currentChunk += sentence;
+        // 최대 길이를 초과하지 않으면 버퍼에 현재 문장 추가
+        buffer += sentence;
       }
     }
     
-    // 마지막 남은 청크 처리
-    if (currentChunk) {
-      chunks.push(currentChunk);
+    // 남은 텍스트 처리
+    if (buffer || currentChunk) {
+      chunks.push(currentChunk + buffer);
     }
-    
-    this.logger.log(`${chunks.length}개의 텍스트 청크 생성 완료, 첫 번째 청크 길이: ${chunks[0]?.length || 0}자`);
     
     return chunks;
+  }
+  
+  /**
+   * 주어진 최대 길이 이전의 마지막 문장 종결 부호 인덱스 찾기
+   * SttUpgradeService의 알고리즘을 기반으로 함
+   * 
+   * @param text 검색할 텍스트
+   * @param maxLength 최대 길이
+   * @returns 마지막 문장 종결 부호 인덱스 또는 -1
+   */
+  private findLastSentenceEndBeforeLimit(text: string, maxLength: number): number {
+    // 최대 길이까지만 검색
+    const searchText = text.substring(0, maxLength);
+    
+    // 마지막 문장 종결 부호 찾기
+    for (let i = searchText.length - 1; i >= 0; i--) {
+      // 마침표, 느낌표, 물음표 찾고, 그 다음이 공백이거나 줄바꿈이거나 텍스트의 끝이면 해당 위치 반환
+      if ((searchText[i] === '.' || searchText[i] === '!' || searchText[i] === '?') && 
+          (i === searchText.length - 1 || 
+           searchText[i + 1] === ' ' || 
+           searchText[i + 1] === '\n')) {
+        return i;
+      }
+    }
+    
+    return -1; // 문장 종결 부호를 찾지 못한 경우
   }
 
   /**
    * 문맥 유지를 위해 청크의 앞뒤에 중복 텍스트를 추가합니다.
+   * SttUpgradeService의 알고리즘과 동일함
    * 
    * @param chunks 원본 텍스트 청크 배열
    * @param overlapSize 중복 텍스트 크기 (문자 수)
@@ -709,13 +754,13 @@ export class SttService {
   }
 
   /**
-   * 텍스트 청크를 GPT로 처리합니다.
+   * 텍스트 청크를 LLM으로 처리합니다.
+   * SttUpgradeService의 알고리즘을 기반으로 함
    * 
    * @param chunks 텍스트 청크 배열
-   * @param language 언어 코드
    * @returns 처리된 텍스트 청크 배열
    */
-  private async processTextChunksWithGpt(chunks: string[], language: string): Promise<string[]> {
+  private async processTextChunksWithLLM(chunks: string[]): Promise<string[]> {
     // 청크에 컨텍스트 추가 (문맥 유지를 위한 중복 영역)
     const contextChunks = this.addContextOverlap(chunks);
     
@@ -730,7 +775,7 @@ export class SttService {
       const batchPromises = batch.map(async ({ chunk, index }) => {
         try {
           this.logger.log(`청크 ${index + 1}/${chunks.length} 처리 시작, 길이: ${chunk.length}`);
-          const processedChunk = await this.processSingleChunkWithGpt(chunk, index, chunks.length, language);
+          const processedChunk = await this.processSingleChunkWithLLM(chunk, index, chunks.length);
           
           // 원본 청크 길이와 비교하여 로깅
           const originalLength = chunks[index].length;
@@ -754,20 +799,15 @@ export class SttService {
   }
 
   /**
-   * 단일 텍스트 청크를 GPT로 처리합니다.
+   * 단일 텍스트 청크를 LLM으로 처리합니다.
+   * SttUpgradeService의 알고리즘을 기반으로 함
    * 
    * @param chunk 처리할 텍스트 청크
    * @param chunkIndex 청크 인덱스
    * @param totalChunks 총 청크 수
-   * @param language 언어 코드
    * @returns 처리된 텍스트
    */
-  private async processSingleChunkWithGpt(
-    chunk: string, 
-    chunkIndex: number, 
-    totalChunks: number,
-    language: string
-  ): Promise<string> {
+  private async processSingleChunkWithLLM(chunk: string, chunkIndex: number, totalChunks: number): Promise<string> {
     try {
       // GPT 프롬프트 준비
       const prompt = await this.prepareSttUpgradePrompt(chunk, chunkIndex, totalChunks);
@@ -794,27 +834,29 @@ export class SttService {
 
   /**
    * STT 업그레이드를 위한 프롬프트를 준비합니다.
+   * SttUpgradeService의 알고리즘을 기반으로 함
    * 
    * @param chunk 처리할 텍스트 청크
    * @param chunkIndex 청크 인덱스
    * @param totalChunks 총 청크 수
    * @returns GPT에 전송할 프롬프트
    */
-  private async prepareSttUpgradePrompt(
-    chunk: string, 
-    chunkIndex: number, 
-    totalChunks: number
-  ): Promise<string> {
+  private async prepareSttUpgradePrompt(chunk: string, chunkIndex: number, totalChunks: number): Promise<string> {
     try {
-      // 프롬프트 템플릿 파일 읽기
+      // 지정된 경로에서 프롬프트 템플릿 파일 읽기
       let promptTemplate = '';
       
       try {
         promptTemplate = await this.readFileAsync(this.PROMPT_PATH, 'utf-8');
         this.logger.debug(`프롬프트 템플릿 로드 성공: ${this.PROMPT_PATH}`);
       } catch (error) {
-        this.logger.warn(`프롬프트 템플릿 파일을 읽을 수 없습니다: ${error.message}`);
-        throw new Error(`프롬프트 템플릿 파일을 찾을 수 없습니다: ${this.PROMPT_PATH}`);
+        this.logger.warn(`프롬프트 템플릿 파일을 읽을 수 없습니다: ${error.message}. 파일 생성 시도...`);
+        
+        // 프롬프트 파일이 없으면 생성
+        await this.mkdirAsync(path.dirname(this.PROMPT_PATH), { recursive: true });
+        await this.writeFileAsync(this.PROMPT_PATH, this.getDefaultPromptTemplate(), 'utf-8');
+        promptTemplate = this.getDefaultPromptTemplate();
+        this.logger.log(`기본 프롬프트 템플릿 파일 생성: ${this.PROMPT_PATH}`);
       }
       
       // 프롬프트 변수 치환
@@ -824,12 +866,55 @@ export class SttService {
         .replace(/\{\{TOTAL_CHUNKS\}\}/g, String(totalChunks));
     } catch (error) {
       this.logger.error(`프롬프트 준비 중 오류: ${error.message}`, error.stack);
-      throw error;
+      // 오류 발생 시 기본 프롬프트 사용
+      return this.getDefaultPromptTemplate()
+        .replace(/\{\{CHUNK_TEXT\}\}/g, chunk)
+        .replace(/\{\{CHUNK_INDEX\}\}/g, String(chunkIndex + 1))
+        .replace(/\{\{TOTAL_CHUNKS\}\}/g, String(totalChunks));
     }
   }
 
   /**
+   * 기본 프롬프트 템플릿을 반환합니다.
+   * SttUpgradeService의 템플릿을 기반으로 함
+   */
+  private getDefaultPromptTemplate(): string {
+    return `당신은 STT(Speech-to-Text) 품질 개선 전문가입니다. 아래 텍스트는 음성 인식 프로그램에 의해 생성된 텍스트입니다. 이 텍스트를 문맥에 맞게 교정하여 가독성과 정확성을 높여주세요.
+
+청크 정보: {{CHUNK_INDEX}} / {{TOTAL_CHUNKS}}
+
+### 원본 STT 텍스트:
+{{CHUNK_TEXT}}
+
+### 작업 지침:
+1. 명확하지 않은 단어나 문장을 문맥에 맞게 수정하세요.
+2. 적절한 문장 부호(쉼표, 마침표 등)를 추가하거나 수정하세요.
+3. 반복되는 단어나 불필요한 단어를 제거하세요.
+4. 띄어쓰기를 올바르게 수정하세요.
+5. 문장 구조를 자연스럽게 수정하세요.
+6. 원본 텍스트의 의미를 최대한 보존하세요.
+7. 주어가 생략된 경우 적절히 추가하세요.
+8. 존댓말과 반말이 섞여있다면 일관되게 수정하세요.
+9. 전문 용어나 고유명사는 최대한 보존하세요.
+10. 원본 텍스트와 형식이 최대한 유사하게 유지하세요.
+11. 문장 간의 자연스러운 연결과 논리적 흐름을 개선하세요.
+
+### 중요 규칙:
+- 원본 텍스트에 없는 새로운 정보를 추가하지 마세요.
+- 원본 텍스트의 의미를 변경하지 마세요.
+- 태그나 마크다운 없이 순수 텍스트만 반환하세요.
+- 설명이나 이유를 포함하지 말고 개선된 텍스트만 반환하세요.
+- 강연, 인터뷰, 대화 등의 특성을 유지하세요.
+- 문법적으로 올바르더라도 구어체 특성은 보존하세요.
+- 전문 용어, 기술 용어, 제품명 등은 정확하게 유지하세요.
+- 문맥상 불명확한 부분은 가장 타당한 해석을 적용하세요.
+
+### 수정된 텍스트:`;
+  }
+
+  /**
    * GPT 응답에서 처리된 텍스트를 추출합니다.
+   * SttUpgradeService의 알고리즘을 기반으로 함
    * 
    * @param response GPT 응답
    * @returns 처리된 텍스트
@@ -935,6 +1020,7 @@ export class SttService {
 
   /**
    * 텍스트 개선율을 계산합니다.
+   * SttUpgradeService의 알고리즘을 기반으로 함
    * 
    * @param originalText 원본 텍스트
    * @param enhancedText 향상된 텍스트
@@ -1029,5 +1115,3 @@ export interface SttProcessingResult {
   improvedPercentage: number;
 }
 
-// crypto 라이브러리 임포트 (UUID 생성용)
-import * as crypto from 'crypto';
