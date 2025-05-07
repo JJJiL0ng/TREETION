@@ -42,7 +42,7 @@ export class ChatGptService {
           messages: [
             {
               role: 'system',
-              content: 'STT 텍스트를 교정하고 개선하는 도우미입니다.',
+              content: 'STT 텍스트를 교정하는 도우미입니다. 오타를 수정하고 문법을 정확하게 합니다.',
             },
             {
               role: 'user',

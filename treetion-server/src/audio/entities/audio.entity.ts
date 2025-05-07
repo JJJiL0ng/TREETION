@@ -67,4 +67,15 @@ export class AudioEntity {
   // 원본 파일명 (청크 관리 및 파일명 생성 시 사용)
   @Column({ nullable: true })
   originalFilename: string;
+  // 업그레이드 개선율
+  @Column({ type: 'float', nullable: true })
+  improvedPercentage: number;
+
+  // 처리 상태 추적
+  @Column({ type: 'varchar', default: 'pending' })
+  processingStatus: string; // 'pending', 'processing', 'completed', 'failed'
+
+  // 처리 오류 정보 (실패 시)
+  @Column({ type: 'text', nullable: true })
+  processingError: string;
 }

@@ -20,10 +20,10 @@ import { SvgModule } from './svg/svg.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
-import { SttClovaModule } from './stt-clova/stt-clova.module';
 import { SttWhisperModule } from './stt-whisper/stt-whisper.module';
 import { SttUpgradeModule } from './stt-upgrade/stt-upgrade.module';
 import { ChatGptModule } from './chat-gpt/chat-gpt.module';
+import { SttModule } from './stt/stt.module';
 
 // 환경 설정 관련
 import appConfig from './config/app.config';
@@ -77,10 +77,10 @@ import apiConfig from './config/api.config';
     AiModule,
     TreeModule,
     SvgModule,
-    SttClovaModule,
     SttWhisperModule,
     SttUpgradeModule,
     ChatGptModule,
+    SttModule,
   ],
   controllers: [AppController],
   providers: [

@@ -10,13 +10,12 @@ import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { SttWhisperModule } from '../stt-whisper/stt-whisper.module';
 import { SttUpgradeModule } from '../stt-upgrade/stt-upgrade.module';
-
+import { SttModule } from '../stt/stt.module';
 // 업로드 디렉토리 확인 및 생성
 const uploadDir = join(process.cwd(), 'uploads/temp');
 if (!existsSync(uploadDir)) {
   mkdirSync(uploadDir, { recursive: true });
 }
-
 @Module({
   imports: [
     // Multer 설정
@@ -34,10 +33,11 @@ if (!existsSync(uploadDir)) {
     // 환경 변수 사용을 위한 ConfigModule
     ConfigModule,
     SttWhisperModule,
-    SttUpgradeModule
+    SttUpgradeModule,
+    SttModule // SttModule을 imports 배열에 추가
   ],
   controllers: [AudioController],
   providers: [AudioService],
-  exports: [AudioService, SttWhisperModule],
+  exports: [AudioService, SttWhisperModule, SttUpgradeModule, SttModule],
 })
 export class AudioModule {}
