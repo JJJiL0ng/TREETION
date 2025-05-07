@@ -515,7 +515,7 @@ export class SttUpgradeService {
     const bucketName = this.configService.get('R2_BUCKET_NAME');
     
     try {
-      this.logger.log(`업그레이드된 텍스트 파일 R2 저장 시작: ${textKey}`);
+      this.logger.log(`업그레이드된 텍스트 파일 R2 저장 시작`);
       
       // R2에 텍스트 파일 업로드
       await this.s3Client.send(
@@ -527,7 +527,7 @@ export class SttUpgradeService {
         })
       );
       
-      this.logger.log(`업그레이드된 텍스트 파일 R2 저장 완료: ${textKey}`);
+      this.logger.log(`업그레이드된 텍스트 파일 R2 저장 완료`);
       return textKey;
     } catch (error) {
       this.logger.error(`텍스트 파일 R2 저장 오류: ${error.message}`, error.stack);

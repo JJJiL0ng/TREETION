@@ -985,7 +985,7 @@ private splitTextIntoChunks(text: string): string[] {
         })
       );
       
-      this.logger.log(`텍스트 파일 R2 저장 완료: ${textKey}`);
+    //   this.logger.log(`텍스트 파일 R2 저장 완료: ${textKey}`);
       return textKey;
     } catch (error) {
       this.logger.error(`텍스트 파일 R2 저장 오류: ${error.message}`, error.stack);
