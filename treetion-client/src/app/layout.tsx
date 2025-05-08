@@ -3,6 +3,8 @@ import "./globals.css";
 import { Analytics } from "@vercel/analytics/react";
 import { Metadata } from "next";
 import RootHeader from "@/components/layout/RootHeader";
+import { useSidebarStore } from "@/store/sidebar-store";
+import Footer from "@/components/layout/Footer";
 
 export const metadata: Metadata = {
   title: "Treetion - 녹음을 통한 효율적인 학습",
@@ -18,6 +20,11 @@ interface RootLayoutProps {
 }
 
 export default function RootLayout({ children }: RootLayoutProps): JSX.Element {
+  const isSidebarOpen =
+    typeof window !== "undefined"
+      ? require("@/store/sidebar-store").useSidebarStore.getState().isOpen
+      : false;
+
   return (
     <html lang="ko" className="overflow-x-hidden">
       <head>
@@ -30,41 +37,7 @@ export default function RootLayout({ children }: RootLayoutProps): JSX.Element {
       <body className="overflow-x-hidden w-full">
         <RootHeader />
         <main className="pt-20">{children}</main>
-
-        <footer className="bg-gray-100 py-8 mt-12">
-          <div className="container mx-auto px-6">
-            <div className="flex flex-col md:flex-row justify-between items-center mb-6">
-              <div className="flex items-center mb-4 md:mb-0">
-                <span className="font-bold text-xl text-[#005DE9]">
-                  Treetion
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-4 md:gap-6 justify-center">
-                <a
-                  href="#"
-                  className="text-gray-600 hover:text-[#005DE9] transition-colors"
-                >
-                  이용약관
-                </a>
-                <a
-                  href="#"
-                  className="text-gray-600 hover:text-[#005DE9] transition-colors"
-                >
-                  개인정보처리방침
-                </a>
-                <a
-                  href="#"
-                  className="text-gray-600 hover:text-[#005DE9] transition-colors"
-                >
-                  고객센터
-                </a>
-              </div>
-            </div>
-            <div className="text-center text-gray-500 text-sm">
-              &copy; {new Date().getFullYear()} Treetion. All rights reserved.
-            </div>
-          </div>
-        </footer>
+        <Footer />
 
         <script
           dangerouslySetInnerHTML={{

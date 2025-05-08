@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileAudio, Mic, Plus, Trees, Upload } from "lucide-react";
+import Link from "next/link";
 
 export default function DashboardPage() {
   return (
@@ -13,15 +14,24 @@ export default function DashboardPage() {
             <CardTitle>빠른 액션</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-3">
-            <Button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700">
-              <Mic className="h-4 w-4" />
-              <span className="hidden md:inline">새 녹음 시작</span>
-            </Button>
-            <Button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700">
+            <Link href="/dashboard/voice-writing" passHref legacyBehavior>
+              <Button
+                asChild
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 cursor-pointer"
+              >
+                <span>
+                  <Mic className="h-4 w-4 text-white" />
+                  <span className="hidden md:inline text-white">
+                    새 녹음 시작
+                  </span>
+                </span>
+              </Button>
+            </Link>
+            <Button variant="outline" className="flex items-center gap-2">
               <Upload className="h-4 w-4" />
               <span className="hidden md:inline">파일 업로드</span>
             </Button>
-            <Button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700">
+            <Button variant="outline" className="flex items-center gap-2">
               <Plus className="h-4 w-4" />
               <span className="hidden md:inline">새 트리 만들기</span>
             </Button>

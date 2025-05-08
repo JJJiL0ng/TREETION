@@ -14,8 +14,9 @@ import {
   Home,
   Settings,
 } from "lucide-react";
-import { Avatar, AvatarFallback } from "./avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "./avatar";
 import { useIsMobile } from "@/hooks/mobile/useMobile";
+import { useUserStore } from "@/store/user-store";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -76,6 +77,7 @@ function FolderItem({ color, label }: FolderItemProps) {
 export function Sidebar({ isOpen, className, onClose }: SidebarProps) {
   const [foldersExpanded, setFoldersExpanded] = useState(true);
   const isMobile = useIsMobile();
+  const { user } = useUserStore();
 
   const toggleFolders = () => {
     setFoldersExpanded(!foldersExpanded);
@@ -177,16 +179,23 @@ export function Sidebar({ isOpen, className, onClose }: SidebarProps) {
             )}
           </nav>
         </div>
-        {/* 사용자 프로필 부분도 구현 안됨 */}
+
+        {/* 사용자 프로필 */}
         <div className="border-t p-3 absolute bottom-0 w-full bg-background">
           <div className="flex items-center gap-3">
             <Avatar className="h-9 w-9">
-              <AvatarFallback>사용자</AvatarFallback>
+              {user?.profileImage ? (
+                <AvatarImage src={user.profileImage} alt={user.name} />
+              ) : (
+                <AvatarFallback>{user?.name?.[0] || "사"}</AvatarFallback>
+              )}
             </Avatar>
             <div className="flex-1 truncate">
-              <p className="text-sm font-medium">사용자 이름</p>
+              <p className="text-sm font-medium">
+                {user?.name || "사용자 이름"}
+              </p>
               <p className="text-xs text-muted-foreground truncate">
-                user@example.com
+                {user?.email || "user@example.com"}
               </p>
             </div>
           </div>
