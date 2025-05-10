@@ -214,9 +214,16 @@ export function Sidebar({ isOpen, className, onClose }: SidebarProps) {
         </div>
 
         {/* 사용자 프로필 */}
+
+        {/* 사용자 프로필 */}
         <div className="border-t p-3 absolute bottom-0 w-full bg-background">
           <div className="flex items-center gap-3">
             <Avatar className="h-9 w-9">
+              {user?.profileImage ? (
+                <AvatarImage src={user.profileImage} alt={user.name} />
+              ) : (
+                <AvatarFallback>{user?.name?.[0] || "사"}</AvatarFallback>
+              )}
               {user?.profileImage ? (
                 <AvatarImage src={user.profileImage} alt={user.name} />
               ) : (
@@ -227,7 +234,11 @@ export function Sidebar({ isOpen, className, onClose }: SidebarProps) {
               <p className="text-sm font-medium">
                 {user?.name || "사용자 이름"}
               </p>
+              <p className="text-sm font-medium">
+                {user?.name || "사용자 이름"}
+              </p>
               <p className="text-xs text-muted-foreground truncate">
+                {user?.email || "user@example.com"}
                 {user?.email || "user@example.com"}
               </p>
             </div>

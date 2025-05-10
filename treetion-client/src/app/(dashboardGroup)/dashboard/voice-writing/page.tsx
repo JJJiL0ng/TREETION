@@ -270,6 +270,7 @@ export default function VoiceWritingPage() {
       <div className="grid gap-6 w-full">
         <h2 className="text-2xl font-bold">음성 녹음</h2>
         {/* <div className="flex flex-col md:flex-row gap-4">
+        {/* <div className="flex flex-col md:flex-row gap-4">
           <Input placeholder="녹음 제목 입력..." className="flex-1" />
           <div className="relative">
             <Button
@@ -280,6 +281,7 @@ export default function VoiceWritingPage() {
               <ChevronDown className="h-4 w-4 ml-2" />
             </Button>
           </div>
+        </div> */}
         </div> */}
         {/* 녹음 인터페이스 카드 */}
         <Card className="w-full">
@@ -293,6 +295,8 @@ export default function VoiceWritingPage() {
                   <button
                     onClick={handleMainRecordButton}
                     className="w-24 h-24 rounded-full bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 transition-colors p-0 gap-0"
+                    onClick={handleMainRecordButton}
+                    className="w-24 h-24 rounded-full bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 transition-colors p-0 gap-0"
                   >
                     {isRecording ? (
                       isPaused ? (
@@ -300,7 +304,13 @@ export default function VoiceWritingPage() {
                       ) : (
                         <Pause className="h-12 w-12 block" />
                       )
+                      isPaused ? (
+                        <Play className="h-12 w-12 block" fill="white" />
+                      ) : (
+                        <Pause className="h-12 w-12 block" />
+                      )
                     ) : (
+                      <Play className="h-12 w-12 block" fill="white" />
                       <Play className="h-12 w-12 block" fill="white" />
                     )}
                   </button>
@@ -313,15 +323,26 @@ export default function VoiceWritingPage() {
                     ? "일시정지 중"
                     : "녹음 중"
                   : "녹음 대기중"}
+                {isRecording
+                  ? isPaused
+                    ? "일시정지 중"
+                    : "녹음 중"
+                  : "녹음 대기중"}
               </h3>
               <p className="text-muted-foreground mb-4">
                 {isRecording
                   ? isPaused
                     ? "버튼을 클릭하여 녹음을 재개하세요"
                     : "녹음을 일시정지하려면 버튼을 클릭하세요"
+                  ? isPaused
+                    ? "버튼을 클릭하여 녹음을 재개하세요"
+                    : "녹음을 일시정지하려면 버튼을 클릭하세요"
                   : "버튼을 클릭하여 녹음을 시작하세요"}
               </p>
               {/* 타이머 */}
+              <div className="text-3xl font-mono mb-8">
+                {formatTime(recordingTime)}
+              </div>
               <div className="text-3xl font-mono mb-8">
                 {formatTime(recordingTime)}
               </div>
@@ -350,7 +371,63 @@ export default function VoiceWritingPage() {
                     파일 업로드
                   </Button>
                 </div>
+              <div className="w-full flex justify-center">
+                <div className="flex gap-4">
+                  <Button variant="outline" className="rounded-full px-8 py-2">
+                    녹음 설정
+                  </Button>
+                  <Button
+                    className={cn(
+                      "rounded-full w-16 h-16 flex items-center justify-center",
+                      isRecording ? "bg-red-500 hover:bg-red-600" : "bg-red-400"
+                    )}
+                    disabled={!isRecording}
+                    onClick={handleStopButtonClick}
+                  >
+                    <div className="w-6 h-6 rounded-full bg-white" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="rounded-full px-8 py-2"
+                    onClick={uploadAudio}
+                    disabled={!audioBlob || isUploading}
+                  >
+                    파일 업로드
+                  </Button>
+                </div>
               </div>
+              {/* 오디오 미리듣기 */}
+              {audioBlob && !isRecording && (
+                <div className="w-full flex flex-col items-center mt-6">
+                  <audio
+                    controls
+                    src={URL.createObjectURL(audioBlob)}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-gray-500 mt-1 text-center">
+                    {draggedFileName
+                      ? `파일명: ${draggedFileName}`
+                      : "녹음된 오디오"}{" "}
+                    {"| 형식: "}
+                    {audioBlob.type || "알 수 없음"}
+                  </p>
+                </div>
+              )}
+              {/* 업로드 상태 메시지 */}
+              {uploadStatus && (
+                <div
+                  className={`p-4 rounded-lg mt-4 ${
+                    uploadStatus.includes("성공")
+                      ? "bg-green-100 text-green-800"
+                      : uploadStatus.includes("오류") ||
+                        uploadStatus.includes("실패")
+                      ? "bg-red-100 text-red-800"
+                      : "bg-blue-100 text-blue-800"
+                  }`}
+                >
+                  <p>{uploadStatus}</p>
+                </div>
+              )}
               {/* 오디오 미리듣기 */}
               {audioBlob && !isRecording && (
                 <div className="w-full flex flex-col items-center mt-6">
@@ -415,6 +492,13 @@ export default function VoiceWritingPage() {
           </CardContent>
         </Card>
       </div>
+      {/* 모달 팝업 */}
+      <StopRecordingModal
+        isOpen={isModalOpen}
+        onSave={handleSaveAudio}
+        onDelete={handleDeleteAudio}
+        onCancel={handleCancelAudio}
+      />
       {/* 모달 팝업 */}
       <StopRecordingModal
         isOpen={isModalOpen}
