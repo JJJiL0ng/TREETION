@@ -17,6 +17,9 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar";
 import { useIsMobile } from "@/hooks/mobile/useMobile";
 import { useUserStore } from "@/store/user-store";
+import { useAudioStore } from "@/store/audio-store";
+import { useRouter } from "next/navigation";
+import ConfirmModal from "./ConfirmModal";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -78,9 +81,30 @@ export function Sidebar({ isOpen, className, onClose }: SidebarProps) {
   const [foldersExpanded, setFoldersExpanded] = useState(true);
   const isMobile = useIsMobile();
   const { user } = useUserStore();
+  const { isRecording, setIsRecording, setIsPaused } = useAudioStore();
+  const router = useRouter();
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const toggleFolders = () => {
     setFoldersExpanded(!foldersExpanded);
+  };
+
+  const handleDashboardClick = (e: React.MouseEvent) => {
+    if (isRecording) {
+      e.preventDefault();
+      setShowConfirm(true);
+    }
+  };
+
+  const handleConfirmYes = () => {
+    setIsRecording(false);
+    setIsPaused(false);
+    setShowConfirm(false);
+    router.push("/dashboard");
+  };
+
+  const handleConfirmNo = () => {
+    setShowConfirm(false);
   };
 
   // Close sidebar when pressing escape key
@@ -120,12 +144,21 @@ export function Sidebar({ isOpen, className, onClose }: SidebarProps) {
         >
           <nav className="flex flex-col gap-0.5 px-2">
             {/* 메인 네비게이션 */}
-            <NavItem
+            <Link
               href="/dashboard"
-              icon={<Home className="h-5 w-5" />}
-              label="대시보드"
-              isActive={true}
-            />
+              className="block"
+              onClick={handleDashboardClick}
+            >
+              <Button
+                variant={true ? "secondary" : "ghost"}
+                className="w-full justify-start px-3 py-2 h-auto"
+              >
+                <div className="flex items-center gap-3">
+                  <Home className="h-5 w-5" />
+                  <span className="text-sm font-medium">대시보드</span>
+                </div>
+              </Button>
+            </Link>
             <NavItem
               href="/dashboard/voice-writing"
               icon={<FileAudio className="h-5 w-5" />}
@@ -201,6 +234,14 @@ export function Sidebar({ isOpen, className, onClose }: SidebarProps) {
           </div>
         </div>
       </div>
+      {showConfirm && (
+        <ConfirmModal
+          isOpen={showConfirm}
+          onConfirm={handleConfirmYes}
+          onCancel={handleConfirmNo}
+          message="녹음을 취소하시겠습니까?"
+        />
+      )}
     </>
   );
 }

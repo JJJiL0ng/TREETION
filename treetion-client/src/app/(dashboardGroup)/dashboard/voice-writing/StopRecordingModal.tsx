@@ -11,6 +11,12 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Save, Trash2 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 
 interface StopRecordingModalProps {
   isOpen: boolean;
@@ -26,6 +32,8 @@ export default function StopRecordingModal({
   onCancel,
 }: StopRecordingModalProps) {
   const [selected, setSelected] = useState<string>("save");
+  const [selectedFolder, setSelectedFolder] = useState<string>("데이터 과학");
+  const folderList = ["데이터 과학", "AI 수학", "독일 문화의 이해"];
 
   useEffect(() => {
     if (!isOpen) {
@@ -51,6 +59,26 @@ export default function StopRecordingModal({
             녹음을 저장하거나 삭제할 수 있습니다.
           </DialogDescription>
         </DialogHeader>
+        <div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="w-full justify-between">
+                {selectedFolder}
+                <span className="ml-2">▼</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-full">
+              {folderList.map((folder) => (
+                <DropdownMenuItem
+                  key={folder}
+                  onClick={() => setSelectedFolder(folder)}
+                >
+                  {folder}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
         <div className="py-4">
           <RadioGroup
             className="space-y-4"

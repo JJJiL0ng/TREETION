@@ -8,6 +8,7 @@ import { ChevronDown, FileAudio, Play, Pause } from "lucide-react";
 import React, { useState, useRef, useEffect } from "react";
 import StopRecordingModal from "./StopRecordingModal";
 import { api } from "@/lib/api/auth/client";
+import { useAudioStore } from "@/store/audio-store";
 
 interface RecordingItemProps {
   title: string;
@@ -39,8 +40,8 @@ function RecordingItem({ title, duration, date, color }: RecordingItemProps) {
 
 export default function VoiceWritingPage() {
   // 녹음 관련 상태 및 로직
-  const [isRecording, setIsRecording] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
+  const { isRecording, setIsRecording, isPaused, setIsPaused } =
+    useAudioStore();
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [recordingTime, setRecordingTime] = useState(0);
   const [uploadStatus, setUploadStatus] = useState("");
